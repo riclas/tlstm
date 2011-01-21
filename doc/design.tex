@@ -1,0 +1,36 @@
+\documentclass{article}
+
+\begin{document}
+
+\title{LPDSTM Design}
+\author{Aleksandar Dragojevic}
+\maketitle
+
+\section{Design Space}
+
+STM design space consists of many axes. Some of them are:
+
+\begin{enumerate}
+\item Contention management.
+\item Conflict detection.
+\item Ownership record table configuration (size of the table, size of the single lock
+stripe).
+\item Memory management approach (laziness allowed).
+\item Various timeouts.
+\end{enumerate}
+
+\section{Workload (Transaction) characteristics}
+
+Workloads and single transactions can be characterized according to following axes:
+
+\begin{enumerate}
+\item Transaction size.
+\item Read ratio (special case---read-only transaction).
+\item Dominant abort reason (write/write conflicts, validation failure during reads and
+writes and validation failure during commit).
+\item Relative abort time (close to start, close to end, commit-time etc.).
+\item Ratio of transactional operations.
+\item Contention transactions see.
+\end{enumerate}
+
+\end{document}

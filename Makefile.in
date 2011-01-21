@@ -1,0 +1,445 @@
+########################################
+# set general variables
+SOLARIS_CPP = /home/dragojev/local/gcc/bin/g++
+SOLARIS_CC = /home/dragojev/local/gcc/bin/gcc
+
+GNU_CPP = g++
+GNU_CC = gcc
+
+INTEL_CPP = icpc
+INTEL_CC = icc
+
+AR = ar
+
+########################################
+# set the compiler
+ifeq ($(COMPILER), )
+	COMPILER = gnu
+endif
+
+ifeq ($(COMPILER), gnu)
+	CC = $(GNU_CC)
+	CPP = $(GNU_CPP)
+endif
+
+ifeq ($(COMPILER), intel)
+	CC = $(INTEL_CC)
+	CPP = $(INTEL_CPP)
+endif
+
+########################################
+# set compiler and linker options
+ATOMIC_OPS_INCLUDE = /home/dragojev/local/libatomicops/include
+
+COMMON_CPPFLAGS = -Wall -I$(ATOMIC_OPS_INCLUDE) -fno-strict-aliasing
+COMMON_LDFLAGS  =
+
+CPPFLAGS = $(COMMON_CPPFLAGS)
+CPPFLAGS += -fno-exceptions -nostdinc++
+LDFLAGS = $(COMMON_LDFLAGS)
+
+ifeq ($(COMPILER), gnu)
+	CPPFLAGS += -fno-threadsafe-statics
+endif
+
+ifeq ($(COMPILER), intel)
+	COMMON_CPPFLAGS += -wd981 -wd522 -wd181 -wd869 -wd111 -wd1599 -wd1418
+endif
+
+MFLAGS = -j2
+
+########################################
+# set platform specific variables
+OS_NAME = $(shell uname -s)
+
+ifeq ($(OS_NAME), Darwin)
+    OS = MacOS
+endif
+
+ifeq ($(OS_NAME), Linux)
+    OS = Linux
+endif
+
+ifeq ($(OS_NAME), SunOS)
+    OS = Solaris
+endif
+
+ifeq ($(OS), MacOS)
+    LPDSTM_CPPFLAGS = -D WLPDSTM_MACOS
+    COMMON_CPPFLAGS += -pthread
+    COMMON_LDFLAGS += -pthread
+endif
+
+ifeq ($(OS), Linux)
+    LPDSTM_CPPFLAGS = -D WLPDSTM_LINUXOS
+    COMMON_CPPFLAGS += -pthread
+    COMMON_LDFLAGS += -lrt -pthread
+endif
+
+# override the compiler too
+ifeq ($(OS), Solaris)
+    LPDSTM_CPPFLAGS = -D WLPDSTM_SOLARIS
+    COMMON_CPPFLAGS += -mt
+    COMMON_LDFLAGS += -lrt -mt
+	CPP = $(SOLARIS_CPP)
+	CC = $(SOLARIS_CC)
+endif
+
+########################################
+# set architecture specific flags
+ifeq ($(ARCH), )
+    ARCH_NAME = $(shell uname -m)
+endif
+
+ifeq ($(ARCH_NAME), i386)
+    ARCH = x86
+endif
+
+ifeq ($(ARCH_NAME), i686)
+    ARCH = x86
+endif
+
+ifeq ($(ARCH_NAME), x86_64)
+    ARCH = x86_64
+endif
+
+ifeq ($(ARCH_NAME), sun4v)
+    ARCH = sparc64
+endif
+
+ifeq ($(ARCH), x86)
+    LPDSTM_CPPFLAGS += -D WLPDSTM_X86 -D WLPDSTM_32
+endif
+
+ifeq ($(ARCH), x86_64)
+    LPDSTM_CPPFLAGS += -D WLPDSTM_X86 -D WLPDSTM_64
+endif
+
+ifeq ($(ARCH), sparc64)
+    LPDSTM_CPPFLAGS += -D WLPDSTM_SPARC -D WLPDSTM_64
+	COMMON_CPPFLAGS += -m64
+	COMMON_LDFLAGS += -m64
+endif
+
+CPPFLAGS += $(LPDSTM_CPPFLAGS)
+LDFLAGS += $(LPDSTM_LDFLAGS)
+
+########################################
+# does the machine support unaligned accesses?
+ifeq ($(UNALIGNED_ACCESSES), )
+    UNALIGNED_ACCESSES = yes
+endif
+
+ifeq ($(ARCH), x86)
+    UNALIGNED_ACCESSES = yes
+endif
+
+ifeq ($(ARCH), x86_64)
+    UNALIGNED_ACCESSES = yes
+endif
+
+ifeq ($(ARCH), sparc64)
+    UNALIGNED_ACCESSES = no
+endif
+
+ifeq ($(UNALIGNED_ACCESSES), yes)
+	CPPFLAGS += -D ALLOW_UNALIGNED_ACCESSES
+endif
+
+########################################
+# set initial values for the core variables
+
+# dirs to use
+SRC_DIR = ./src
+INCLUDE_SRC_DIR = $(SRC_DIR)/include
+STM_SRC_DIR = $(SRC_DIR)/stm
+
+MUBENCH_SRC_DIR = $(SRC_DIR)/mubench
+MUBENCH_RSTM_SRC_DIR = $(MUBENCH_SRC_DIR)/rstm
+MUBENCH_NESTED_SRC_DIR = $(MUBENCH_SRC_DIR)/nested
+
+INCLUDE_DIR = ./include
+TARGET_DIR = ./target
+LIB_DIR = ./lib
+OBJ_DIR = $(TARGET_DIR)/obj
+
+INCLUDE_IN_FILE = $(INCLUDE_SRC_DIR)/stm.h
+INCLUDE_OUT_FILE = $(INCLUDE_DIR)/stm.h
+
+# tbb malloc dirs
+TBB_MALLOC_INCLUDE_DIR=/home/aleksandar/work/epfl/gc/tbb20_20070927oss_src/include/tbb
+TBB_MALLOC_LIB_DIR=/home/aleksandar/work/epfl/gc/tbb20_20070927oss_src/build/linux_ia32_gcc_cc4.1.3_libc2.6.1_kernel2.6.22_release
+
+########################################
+# set the build profile (default=normal)
+CPPFLAGS_normal  =  -ggdb -O3
+CPPFLAGS_fast    =  -DNDEBUG -O3
+CPPFLAGS_debug   =  -ggdb -O0
+CPPFLAGS_gp0     =  -ggdb -pg -O0
+CPPFLAGS_gp      =  -ggdb -pg -O3
+
+ifeq ($(PROFILE), )
+	ifeq ($(COMPILER), gnu)
+		PROFILE = fast
+	endif
+
+	ifeq ($(COMPILER), intel)
+		PROFILE = normal
+	endif
+endif
+
+COMMON_CPPFLAGS += $(CPPFLAGS_${PROFILE})
+
+#########################################
+## set memory management
+#MM_CPPFLAGS_tbb_malloc = -I${TBB_MALLOC_INCLUDE_DIR} -D MM_TBB_MALLOC
+#MM_LDFLAGS_tbb_malloc = ${TBB_MALLOC_LIB_DIR}/MemoryAllocator.o
+#
+#MM_CPPFLAGS_glibc =
+#MM_LDFLAGS_glibc =
+#
+#ifeq ($(TM), ref)
+#	MM = ref
+#endif
+#
+#ifeq ($(MM), )
+#	MM = glibc
+#endif
+#
+#COMMON_CPPFLAGS += $(MM_CPPFLAGS_${MM})
+#LDFLAGS += $(MM_LDFLAGS_${MM})
+
+
+########################################
+# select tls implementation
+TLS_CPPFLAGS_pthread = -D USE_PTHREAD_TLS
+
+TLS_CPPFLAGS_gcc = -D USE_GCC_TLS
+
+ifeq ($(TLS), )
+    ifeq ($(OS), MacOS)
+        TLS = pthread
+    endif
+
+    ifeq ($(OS), LinuxOS)
+        TLS = gcc
+    endif
+
+    ifeq ($(OS), Solaris)
+        TLS = gcc
+    endif
+endif
+
+CPPFLAGS += $(TLS_CPPFLAGS_${TLS})
+
+########################################
+# select log
+
+LOG_CPPFLAGS_chunked = -D CHUNKED_LOG
+
+LOG_CPPFLAGS_vector = -D VECTOR_LOG
+
+LOG_CPPFLAGS_linked = -D LINKED_LOG
+
+ifeq ($(LOG), )
+	LOG = chunked
+endif
+
+CPPFLAGS += $(LOG_CPPFLAGS_${LOG})
+
+
+########################################
+# select waiting policy
+WAITING_POLICY_CPPFLAGS_preemptive = -D USE_PREEMPTIVE_WAITING
+
+WAITING_POLICY_CPPFLAGS_live =
+
+ifeq ($(WAITING_POLICY), )
+	WAITING_POLICY = live
+endif
+
+CPPFLAGS += $(WAITING_POLICY_CPPFLAGS_${WAITING_POLICY})
+
+########################################
+# collect stats or no
+COLLECT_STATS_CPPFLAGS_yes = -D COLLECT_STATS
+COLLECT_STATS_CPPFLAGS_no =
+
+ifeq ($(COLLECT_STATS), )
+	COLLECT_STATS = yes
+endif
+
+COMMON_CPPFLAGS += $(COLLECT_STATS_CPPFLAGS_${COLLECT_STATS})
+
+########################################
+# use adaptive locking
+ADAPTIVE_LOCKING_CPPFLAGS_yes = -D ADAPTIVE_LOCKING
+ADAPTIVE_LOCKING_CPPFLAGS_no = 
+
+ifeq ($(ADAPTIVE_LOCKING), )
+	ADAPTIVE_LOCKING = no
+endif
+
+CPPFLAGS += $(ADAPTIVE_LOCKING_CPPFLAGS_${ADAPTIVE_LOCKING})
+
+########################################
+# wait after a number of successive aborts or not
+WAIT_ON_ABORT_CPPFLAGS_yes = -D WAIT_ON_SUCC_ABORTS
+WAIT_ON_ABORT_CPPFLAGS_no =
+
+ifeq ($(WAIT_ON_ABORT), )
+	WAIT_ON_ABORT = yes
+endif
+
+CPPFLAGS += $(WAIT_ON_ABORT_CPPFLAGS_${WAIT_ON_ABORT})
+
+########################################
+# collect detailed stats
+DETAILED_STATS_CPPFLAGS_yes = -D DETAILED_STATS
+DETAILED_STATS_CPPFLAGS_no =
+
+ifeq ($(DETAILED_STATS), )
+	DETAILED_STATS = no
+endif
+
+CPPFLAGS += $(DETAILED_STATS_CPPFLAGS_${DETAILED_STATS})
+
+########################################
+# collect influence diagram stats
+INFLUENCE_DIAGRAM_STATS_CPPFLAGS_yes = -D INFLUENCE_DIAGRAM_STATS
+INFLUENCE_DIAGRAM_STATS_CPPFLAGS_no =
+
+ifeq ($(INFLUENCE_DIAGRAM_STATS), )
+	INFLUENCE_DIAGRAM_STATS = no
+endif
+
+CPPFLAGS += $(INFLUENCE_DIAGRAM_STATS_CPPFLAGS_${INFLUENCE_DIAGRAM_STATS})
+
+########################################
+# collect timestamp extend stats
+TS_EXTEND_STATS_CPPFLAGS_yes = -D TS_EXTEND_STATS
+TS_EXTEND_STATS_CPPFLAGS_no =
+
+ifeq ($(TS_EXTEND_STATS), )
+	TS_EXTEND_STATS = yes
+endif
+
+CPPFLAGS += $(TS_EXTEND_STATS_CPPFLAGS_${TS_EXTEND_STATS})
+
+########################################
+# use simple greedy
+SIMPLE_GREEDY_CPPFLAGS_yes = -D SIMPLE_GREEDY
+SIMPLE_GREEDY_CPPFLAGS_no =
+
+ifeq ($(SIMPLE_GREEDY), )
+	SIMPLE_GREEDY = no
+endif
+
+CPPFLAGS += $(SIMPLE_GREEDY_CPPFLAGS_${SIMPLE_GREEDY})
+
+########################################
+# what to do with accesses to tx private stack
+STACK_PROTECT_CPPFLAGS_no =
+STACK_PROTECT_CPPFLAGS_on_read_write = -D STACK_PROTECT_ON_WRITE -D STACK_PROTECT_ON_READ -D STACK_PROTECT
+
+ifeq ($(STACK_PROTECT), )
+	STACK_PROTECT = no
+endif
+
+CPPFLAGS += $(STACK_PROTECT_CPPFLAGS_${STACK_PROTECT})
+
+########################################
+# how to get stack protect upper bound
+STACK_PROTECT_BOUND_CPPFLAGS_no =
+STACK_PROTECT_BOUND_CPPFLAGS_tanger = -D STACK_PROTECT_TANGER_BOUND
+STACK_PROTECT_BOUND_CPPFLAGS_wlpdstm = -D STACK_PROTECT_WLPDSTM_BOUND
+STACK_PROTECT_BOUND_CPPFLAGS_icc = -D STACK_PROTECT_ICC_BOUND
+
+ifeq ($(STACK_PROTECT_BOUND), )
+	STACK_PROTECT_BOUND = no
+endif
+
+CPPFLAGS += $(STACK_PROTECT_BOUND_CPPFLAGS_${STACK_PROTECT_BOUND})
+
+########################################
+# manage commit_ts
+COMMIT_TS_CPPFLAGS_inc = -D COMMIT_TS_INC
+COMMIT_TS_CPPFLAGS_gv4 = -D COMMIT_TS_GV4
+
+ifeq ($(COMMIT_TS), )
+	COMMIT_TS = inc
+endif
+
+CPPFLAGS += $(COMMIT_TS_CPPFLAGS_${COMMIT_TS})
+
+########################################
+# manage commit_ts
+PERFORMANCE_COUNTING_yes = -D PERFORMANCE_COUNTING
+PERFORMANCE_COUNTING_no = 
+
+ifeq ($(PERFORMANCE_COUNTING), )
+	PERFORMANCE_COUNTING = no
+endif
+
+CPPFLAGS += $(PERFORMANCE_COUNTING_${PERFORMANCE_COUNTING})
+
+ifeq ($(PERFORMANCE_COUNTING), yes)
+
+	ifeq ($(OS), Solaris)
+		COMMON_LDFLAGS += -lcpc
+	endif
+
+endif
+
+
+########################################
+# support privatization
+PRIVATIZATION_CPPFLAGS_no =
+PRIVATIZATION_CPPFLAGS_quiescence = -D PRIVATIZATION_QUIESCENCE
+PRIVATIZATION_CPPFLAGS_quiescence_tree = -D PRIVATIZATION_QUIESCENCE_TREE
+
+ifeq ($(PRIVATIZATION), )
+	PRIVATIZATION = no
+endif
+
+CPPFLAGS += $(PRIVATIZATION_CPPFLAGS_${PRIVATIZATION})
+
+########################################
+# signaling
+SIGNALING_CPPFLAGS_no = 
+SIGNALING_CPPFLAGS_yes = -D SIGNALING
+
+ifeq ($(SIGNALING), )
+	SIGNALING = no
+endif
+
+CPPFLAGS += $(SIGNALING_CPPFLAGS_${SIGNALING})
+
+
+########################################
+# choose privatization safe or epoch based memory manager
+MM_CPPFLAGS_epoch_based = -D MM_EPOCH
+MM_CPPFLAGS_privatization = -D MM_PRIVATIZATION
+
+ifeq ($(MM), )
+	MM = epoch_based
+endif
+
+CPPFLAGS += $(MM_CPPFLAGS_${MM})
+
+########################################
+# define mubench flags
+MUBENCH_CPPFLAGS  = $(COMMON_CPPFLAGS) -DMUBENCH_WLPDSTM
+MUBENCH_CPPFLAGS += -I$(INCLUDE_DIR)
+MUBENCH_LDFLAGS   = $(COMMON_LDFLAGS)
+MUBENCH_LDFLAGS  += -L$(LIB_DIR) -lwlpdstm
+
+ifeq ($(COMPILER), intel)
+	MUBENCH_LDFLAGS  += -lstdc++
+endif
+
+##########################
+# add lpdstm flags
+#CPPFLAGS = $(COMMON_CPPFLAGS)
+#CPPFLAGS += $(LPDSTM_CPPFLAGS)
+
