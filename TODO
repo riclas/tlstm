@@ -1,0 +1,16 @@
+- criar array por thread que mantém ponteiros para os read-sets e
+write-sets das tasks activas daquela thread
+- campos extra no estado de cada task (i.e., transaccao swiss-tm) e
+begintx que inicializa esses campos extra
+- criar estado associado a cada thread (serial number actual, serial
+number da próxima task a criar, thread-id, etc)
+- log de escritas especulativas associado a cada objecto + bitmap de
+tasks que leram cada escrita no log
+- modificar load e store
+- modificar commit
+- programa de teste (com main que cria threads e, em cada thread, cria
+umas quantas tasks e transacções)
+- alterar w-locks para incluirem também thread-id
+- procedimento de abort (ainda não existe pseudo-código para isto)
+- modificações ao contention manager para ter em conta o nível de
+especulação entre tasks conflituosas
