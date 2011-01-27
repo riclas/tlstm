@@ -131,7 +131,13 @@ namespace wlpdstm {
 			
 			void ClearWordLogEntries();
 		};
-		
+
+		struct TransactionState {
+			Word valid_ts;
+			bool read_only;
+			unsigned first_serial;		
+		};
+
 		typedef Log<ReadLogEntry> ReadLog;
 		typedef Log<WriteLogEntry> WriteLog;
 #ifdef SUPPORT_LOCAL_WRITES
@@ -424,6 +430,13 @@ namespace wlpdstm {
 		
 		Word valid_ts;
 		
+		//TLSTM
+		TransactionState tx_state;
+
+		unsigned serial;
+
+		bool try_commit;
+
 #ifdef PRIVATIZATION_QUIESCENCE
 		Word *quiescence_ts;
 #elif defined PRIVATIZATION_QUIESCENCE_TREE
@@ -454,7 +467,7 @@ namespace wlpdstm {
 		
 		ReadLog[] fw_read_log[SPECDEPTH];
 
-		unsigned lastCommitedTask, lastCompletedTask, nextTask;
+		unsigned last_commited_task, last_completed_task, next_task;
 
 #ifdef SUPPORT_LOCAL_WRITES
 		// local
@@ -484,6 +497,9 @@ namespace wlpdstm {
 		
 		// local
 		MemoryManager mm;
+
+		//TLSTM
+		unsigned next_serial;
 
 	private:
 		
@@ -724,6 +740,9 @@ inline void wlpdstm::TxMixinv::ThreadInit() {
 #ifdef PERFORMANCE_COUNTING
 	perf_cnt.ThreadInit();
 #endif /* PERFORMANCE_COUNTING */
+
+	//TLSTM
+	next_serial = 0;
 }
 
 ////////////////////////
@@ -784,7 +803,10 @@ inline wlpdstm::VersionLock *wlpdstm::TxMixinv::map_write_lock_to_read_lock(Writ
 // main algorithm start //
 //////////////////////////
 
-inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id) {
+inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit) {
+	//TLSTM
+	while(next_task - last_completed_task > SPECDEPTH);
+
 #ifdef PERFORMANCE_COUNTING
 	perf_cnt_sampling.tx_start();
 
@@ -819,7 +841,18 @@ inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id) {
 #ifdef MM_EPOCH
 	UpdateLastObservedTs(valid_ts);
 #endif /* MM_EPOCH */
+
+	//TLSTM	
+	serial = next_serial++;
+	if(start_tx){
+		tx_state.valid_ts = valid_ts;
+		tx_state.read_only = true;
+		tx_state.first_serial = serial;
+	}
 	
+	try_commit = commit;
+	//TLSTM
+
 	CmStartTx();
 	
 	// reset aborted flag
