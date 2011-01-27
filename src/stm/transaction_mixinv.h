@@ -74,6 +74,9 @@
 // This should be bigger than the biggest start_buf, or will cause cache misses.
 #define START_BUF_PADDING_SIZE 10
 
+//TLSTM
+#define SPECDEPTH 8
+
 namespace wlpdstm {
 	
 	typedef VersionLock WriteLock;
@@ -436,13 +439,23 @@ namespace wlpdstm {
 		// local
 		uintptr_t stack_high;
 #endif /* STACK_PROTECT */
-		
+		/*
 		// local
 		ReadLog read_log;
 		
 		// local
 		WriteLog write_log;
+		*/
+		//TLSTM
+		// local
+		ReadLog[] read_log[SPECDEPTH];
 		
+		WriteLog[] write_log[SPECDEPTH];
+		
+		ReadLog[] fw_read_log[SPECDEPTH];
+
+		unsigned lastCommitedTask, lastCompletedTask, nextTask;
+
 #ifdef SUPPORT_LOCAL_WRITES
 		// local
 		WriteLocalLog write_local_log;
