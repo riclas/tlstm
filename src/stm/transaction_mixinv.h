@@ -1090,16 +1090,19 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 	
 	// read lock value
 	WriteLock lock_value = (WriteLock)atomic_load_no_barrier(write_lock);
-	bool locked = is_write_locked(lock_value);
-	
-	if(locked) {
-		WriteLogEntry *log_entry = (WriteLogEntry *)lock_value;
-		
-		if(LockedByMe(log_entry)) {
-			return log_entry;
-		}
+	unsigned prevActWr = previousActiveWriterFromSameThread(tid, address, serial);
+
+	if(prevActWr >= tx_state.first_serial) {
+		if(prevActWr != serial)
+			setStoreVector(serial);
+
+		abortEarlySpecReads(address, serial);
+
+		return (WriteLogEntry *)lock_value;
 	}
-	
+
+	bool locked = is_write_locked(lock_value);
+		
 #ifdef DETAILED_STATS
 	stats.IncrementStatistics(Statistics::NEW_WRITES);
 #endif /* DETAILED_STATS */
@@ -1109,7 +1112,7 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 #endif /* ADAPTIVE_LOCKING */
 	
 	while(true) {		
-		if(locked) {
+		if(locked && lock_value != tid) {
 #ifdef ADAPTIVE_LOCKING
 			if(!false_conflict_detected) {
 				false_conflict_detected = true;
@@ -1146,9 +1149,13 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 		log_entry->write_lock = write_lock;
 		log_entry->ClearWordLogEntries(); // need this here TODO - maybe move this to commit/abort time
 		log_entry->owner = this; // this is for CM - TODO: try to move it out of write path
-		
+
+		setStoreVector(serial);
+
 		// now try to lock it
-		if(atomic_cas_release(write_lock, WRITE_LOCK_CLEAR, log_entry)) {
+		if(lock_value == tid || atomic_cas_release(write_lock, WRITE_LOCK_CLEAR, log_entry)) {
+			abortEarlySpecReads(address, serial);
+
 			// need to check read set validity if this address was read before
 			// we skip this read_before() check TODO: maybe do that
 			VersionLock *read_lock = map_write_lock_to_read_lock(write_lock);
@@ -1300,7 +1307,8 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 #endif /* ADAPTIVE_LOCKING */
 	WriteLock *write_lock = map_address_to_write_lock(address);
 	WriteLogEntry *log_entry = (WriteLogEntry *)atomic_load_no_barrier(write_lock);
-	
+
+	/*SwissTM
 	// if locked by me return quickly
 	if(LockedByMe(log_entry)) {
 		WriteLogEntry *log_entry = (WriteLogEntry *)*write_lock;
@@ -1312,8 +1320,8 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 		} else {
 			// if it was not written return from memory
 			return (Word)atomic_load_no_barrier(address);
-		}		
-	}
+		}
+	}*/
 
 #ifdef ADAPTIVE_LOCKING
 	//	if(larger_lock_extent_table.Contains(map_address_to_index(address, larger_lock_extent))) {
@@ -1326,14 +1334,56 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 	VersionLock version = (VersionLock)atomic_load_acquire(read_lock);
 	Word value;
 
+	unsigned prevActWr = previousActiveWriterFromSameThread(tid, address, serial);
+
+	//Start by checking whether the object has been written
+	//by a task before me from the same user-transaction
+	if(prevActWr >= tx_state.first_serial){
+		if(prevActWr < serial)
+			//Expresses the intention to read a value written by a previous task
+			setLoadVector(serial);
+		//We find the value in the previous writer’s write-log
+		//and return it (similar to swisstm)
+		//return get-value(tid, prevActWr, addr);
+		//the log implementation seems to handle this correctly for TLSTM too
+		WriteLogEntry *log_entry = (WriteLogEntry *)*write_lock;
+		WriteWordLogEntry *word_log_entry = log_entry->FindWordLogEntry(address);
+
+		if(word_log_entry != NULL) {
+			// if it was written return from log
+			return MaskWord(word_log_entry);
+		} else {
+			// if it was not written return from memory
+			return (Word)atomic_load_no_barrier(address);
+		}
+	}
+	//Expresses the intention to read a value written by
+	//a previous task (only needed for out-of-order tasks)
+	if(outOfOrderTask(serial)) setLoadVector(serial);
+
 	while(true) {
 		if(is_read_locked(version)) {
 			version = (VersionLock)atomic_load_acquire(read_lock);
+			prevActWr = previousActiveWriterFromSameThread(tid, address, serial);
 			YieldCPU();
 			continue;
 		}
 
-		value = (Word)atomic_load_acquire(address);
+		if(prevActWr){
+			//We find the value in the previous writer’s write-log
+			WriteLogEntry *log_entry = (WriteLogEntry *)*write_lock;
+			WriteWordLogEntry *word_log_entry = log_entry->FindWordLogEntry(address);
+
+			if(word_log_entry != NULL) {
+				// if it was written return from log
+				value = MaskWord(word_log_entry);
+			} else {
+				// if it was not written return from memory
+				value = (Word)atomic_load_no_barrier(address);
+			}
+		} else {
+			value = (Word)atomic_load_acquire(address);
+		}
 		VersionLock version_2 = (VersionLock)atomic_load_acquire(read_lock);
 
 		if(version != version_2) {
@@ -1341,10 +1391,13 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 			YieldCPU();
 			continue;
 		}
+		prevActWr = previousActiveWriterFromSameThread(tid, address, serial);
 
-		ReadLogEntry *entry = read_log[serial % SPECDEPTH].get_next();
-		entry->read_lock = read_lock;
-		entry->version = version;		
+		if(prevActWr == NULL){
+			ReadLogEntry *entry = read_log[serial % SPECDEPTH].get_next();
+			entry->read_lock = read_lock;
+			entry->version = version;
+		}
 
 		if(ShouldExtend(version)) {
 			if(!Extend()) {
