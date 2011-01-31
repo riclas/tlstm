@@ -461,11 +461,11 @@ namespace wlpdstm {
 		*/
 		//TLSTM
 		// local
-		ReadLog[] read_log[SPECDEPTH];
+		ReadLog read_log[SPECDEPTH];
 		
-		WriteLog[] write_log[SPECDEPTH];
+		WriteLog write_log[SPECDEPTH];
 		
-		ReadLog[] fw_read_log[SPECDEPTH];
+		ReadLog fw_read_log[SPECDEPTH];
 
 		unsigned last_commited_task, last_completed_task, next_task;
 
@@ -902,11 +902,11 @@ inline void wlpdstm::TxMixinv::TxCommit() {
 
 inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 	Word ts = valid_ts;
-	bool read_only = write_log.empty();
+	bool read_only = write_log[serial % SPECDEPTH].empty();
 	
 	if(!read_only) {
 		// first lock all read locks
-		for(WriteLog::iterator iter = write_log.begin();iter.hasNext();iter.next()) {
+		for(WriteLog::iterator iter = write_log[serial % SPECDEPTH].begin();iter.hasNext();iter.next()) {
 			WriteLogEntry &entry = *iter;
 			*(entry.read_lock) = READ_LOCK_SET;
 		}
@@ -954,7 +954,7 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 		VersionLock commitVersion = get_version_lock(ts);
 		
 		// now update all written values
-		for(WriteLog::iterator iter = write_log.begin();iter.hasNext();iter.next()) {
+		for(WriteLog::iterator iter = write_log[serial % SPECDEPTH].begin();iter.hasNext();iter.next()) {
 			WriteLogEntry &entry = *iter;
 			
 			// now update actual values
@@ -986,16 +986,16 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 #endif /* PRIVATIZATION_QUIESCENCE */
 
 #ifdef INFLUENCE_DIAGRAM_STATS
-	stats.IncrementStatistics(Statistics::READ_LOG_SIZE, read_log.get_size());
-	stats.IncrementStatistics(Statistics::WRITE_LOG_SIZE, write_log.get_size());
+	stats.IncrementStatistics(Statistics::READ_LOG_SIZE, read_log[serial % SPECDEPTH].get_size());
+	stats.IncrementStatistics(Statistics::WRITE_LOG_SIZE, write_log[serial % SPECDEPTH].get_size());
 #endif /* INFLUENCE_DIAGRAM_STATS */
 
 	if(!read_only) {
-		write_log.clear();
+		write_log[serial % SPECDEPTH].clear();
 		write_word_log_mem_pool.clear();
 	}
 
-	read_log.clear();
+	read_log[serial % SPECDEPTH].clear();
 #ifdef SUPPORT_LOCAL_WRITES
 	write_local_log.clear();
 #endif /* SUPPORT_LOCAL_WRITES */
@@ -1017,7 +1017,7 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 }
 
 inline void wlpdstm::TxMixinv::ReleaseReadLocks() {
-	for(WriteLog::iterator iter = write_log.begin();iter.hasNext();iter.next()) {
+	for(WriteLog::iterator iter = write_log[serial % SPECDEPTH].begin();iter.hasNext();iter.next()) {
 		WriteLogEntry &entry = *iter;
 		*(entry.read_lock) = entry.old_version;
 	}			
@@ -1040,14 +1040,14 @@ inline void wlpdstm::TxMixinv::Rollback() {
 #endif /* SUPPORT_LOCAL_WRITES */
 
 	// drop locks
-	for(WriteLog::iterator iter = write_log.begin();iter.hasNext();iter.next()) {
+	for(WriteLog::iterator iter = write_log[serial % SPECDEPTH].begin();iter.hasNext();iter.next()) {
 		WriteLogEntry &entry = *iter;
 		*entry.write_lock = WRITE_LOCK_CLEAR;
 	}
 	
 	// empty logs
-	read_log.clear();
-	write_log.clear();
+	read_log[serial % SPECDEPTH].clear();
+	write_log[serial % SPECDEPTH].clear();
 #ifdef SUPPORT_LOCAL_WRITES
 	write_local_log.clear();
 #endif /* SUPPORT_LOCAL_WRITES */
@@ -1062,15 +1062,15 @@ inline void wlpdstm::TxMixinv::Rollback() {
 
 inline void wlpdstm::TxMixinv::IncrementReadAbortStats() {
 #ifdef INFLUENCE_DIAGRAM_STATS
-	stats.IncrementStatistics(Statistics::READ_LOG_SIZE_ABORT_READ, read_log.get_size());
-	stats.IncrementStatistics(Statistics::WRITE_LOG_SIZE_ABORT_READ, write_log.get_size());
+	stats.IncrementStatistics(Statistics::READ_LOG_SIZE_ABORT_READ, read_log[serial % SPECDEPTH].get_size());
+	stats.IncrementStatistics(Statistics::WRITE_LOG_SIZE_ABORT_READ, write_log[serial % SPECDEPTH].get_size());
 #endif /* INFLUENCE_DIAGRAM_STATS */
 }
 
 inline void wlpdstm::TxMixinv::IncrementWriteAbortStats() {
 #ifdef INFLUENCE_DIAGRAM_STATS
-	stats.IncrementStatistics(Statistics::READ_LOG_SIZE_ABORT_WRITE, read_log.get_size());
-	stats.IncrementStatistics(Statistics::WRITE_LOG_SIZE_ABORT_WRITE, write_log.get_size());
+	stats.IncrementStatistics(Statistics::READ_LOG_SIZE_ABORT_WRITE, read_log[serial % SPECDEPTH].get_size());
+	stats.IncrementStatistics(Statistics::WRITE_LOG_SIZE_ABORT_WRITE, write_log[serial % SPECDEPTH].get_size());
 #endif /* INFLUENCE_DIAGRAM_STATS */
 }
 
@@ -1136,7 +1136,7 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 		}
 		
 		// prepare write log entry
-		WriteLogEntry *log_entry = write_log.get_next();
+		WriteLogEntry *log_entry = write_log[serial % SPECDEPTH].get_next();
 		log_entry->write_lock = write_lock;
 		log_entry->ClearWordLogEntries(); // need this here TODO - maybe move this to commit/abort time
 		log_entry->owner = this; // this is for CM - TODO: try to move it out of write path
@@ -1177,7 +1177,7 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 		
 		// someone locked it in the meantime
 		// return last element back to the log
-		write_log.delete_last();
+		write_log[serial % SPECDEPTH].delete_last();
 		
 		// read version again
 		lock_value = (WriteLock)atomic_load_acquire(write_lock);
@@ -1336,7 +1336,7 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 			continue;
 		}
 
-		ReadLogEntry *entry = read_log.get_next();
+		ReadLogEntry *entry = read_log[serial % SPECDEPTH].get_next();
 		entry->read_lock = read_lock;
 		entry->version = version;		
 
@@ -1378,7 +1378,7 @@ inline bool wlpdstm::TxMixinv::ShouldExtend(VersionLock version) {
 inline bool wlpdstm::TxMixinv::Validate() {
 	ReadLog::iterator iter;
 	
-	for(iter = read_log.begin();iter.hasNext();iter.next()) {
+	for(iter = read_log[serial % SPECDEPTH].begin();iter.hasNext();iter.next()) {
 		ReadLogEntry &entry = *iter;
 		VersionLock currentVersion = (VersionLock)atomic_load_no_barrier(entry.read_lock);
 		
@@ -1394,7 +1394,7 @@ inline bool wlpdstm::TxMixinv::Validate() {
 inline bool wlpdstm::TxMixinv::ValidateCommit() {
 	ReadLog::iterator iter;
 	
-	for(iter = read_log.begin();iter.hasNext();iter.next()) {
+	for(iter = read_log[serial % SPECDEPTH].begin();iter.hasNext();iter.next()) {
 		ReadLogEntry &entry = *iter;
 		VersionLock currentVersion = (VersionLock)atomic_load_no_barrier(entry.read_lock);
 		
