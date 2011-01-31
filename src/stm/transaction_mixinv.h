@@ -459,16 +459,7 @@ namespace wlpdstm {
 		// local
 		WriteLog write_log;
 		*/
-		//TLSTM
-		// local
-		ReadLog read_log[SPECDEPTH];
 		
-		WriteLog write_log[SPECDEPTH];
-		
-		ReadLog fw_read_log[SPECDEPTH];
-
-		unsigned last_commited_task, last_completed_task, next_task;
-
 #ifdef SUPPORT_LOCAL_WRITES
 		// local
 		WriteLocalLog write_local_log;
@@ -500,6 +491,19 @@ namespace wlpdstm {
 
 		//TLSTM
 		unsigned next_serial;
+
+		ReadLog read_log[SPECDEPTH];
+
+		WriteLog write_log[SPECDEPTH];
+
+		ReadLog fw_read_log[SPECDEPTH];
+
+		unsigned last_commited_task, last_completed_task, next_task;
+
+		//StoreVectors
+		//LoadVectors
+
+		TransactionState last_tx_state;
 
 	private:
 		
@@ -845,11 +849,13 @@ inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit
 	//TLSTM	
 	serial = next_serial++;
 	if(start_tx){
-		tx_state.valid_ts = valid_ts;
-		tx_state.read_only = true;
-		tx_state.first_serial = serial;
+		last_tx_state.valid_ts = valid_ts;
+		last_tx_state.read_only = true;
+		last_tx_state.first_serial = serial;
 	}
 	
+	tx_state = last_tx_state;
+
 	try_commit = commit;
 	//TLSTM
 
