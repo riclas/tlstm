@@ -1,13 +1,15 @@
 - criar array por thread que mantém ponteiros para os read-sets e
-write-sets das tasks activas daquela thread
+write-sets das tasks activas daquela thread -feito
 - campos extra no estado de cada task (i.e., transaccao swiss-tm) e
-begintx que inicializa esses campos extra
+begintx que inicializa esses campos extra -feito
 - criar estado associado a cada thread (serial number actual, serial
-number da próxima task a criar, thread-id, etc)
+number da próxima task a criar, thread-id, etc) -feito
 - log de escritas especulativas associado a cada objecto + bitmap de
-tasks que leram cada escrita no log
-- modificar load e store
-- modificar commit
+tasks que leram cada escrita no log -feito
+- modificar load e store -feito
+- modificar commit -feito
+- criar array para metadados das threads (neste momento está tudo partilhado)
+- modificar validate e rollback
 - programa de teste (com main que cria threads e, em cada thread, cria
 umas quantas tasks e transacções)
 - alterar w-locks para incluirem também thread-id
