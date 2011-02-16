@@ -194,6 +194,8 @@ namespace wlpdstm {
 		
 		static void InitializeWriteLocks();
 
+		static void ClearSLVectors(int serial);
+
 #ifdef PRIVATIZATION_QUIESCENCE		
 		static void InitializeQuiescenceTimestamps();
 #endif /* PRIVATIZATION_QUIESCENCE */
@@ -645,6 +647,9 @@ inline void wlpdstm::TxMixinv::GlobalInit() {
 	
 	InitializeWriteLocks();
 	
+	for(int i=0; i < SPECDEPTH; i++)
+		ClearSLVectors(i);
+
 #ifdef PRIVATIZATION_QUIESCENCE
 	InitializeQuiescenceTimestamps();
 #elif defined PRIVATIZATION_QUIESCENCE_TREE
@@ -1041,6 +1046,8 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 	}
 	last_commited_task = serial;
 
+	ClearSLVectors(serial);
+
 	atomic_store_release(&tx_status, TX_COMMITTED);
 		
 #ifdef PRIVATIZATION_QUIESCENCE
@@ -1153,11 +1160,12 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 	
 	// read lock value
 	WriteLock lock_value = (WriteLock)atomic_load_no_barrier(write_lock);
+	//TLSTM
 	unsigned prevActWr = PreviousActiveWriter(address, serial);
 
 	if(prevActWr >= tx_state.first_serial) {
 		if(prevActWr != serial)
-			setStoreVector((WriteLogEntry *)lock_value, address, serial);
+			setStoreVector(address, serial, (WriteLogEntry *)lock_value);
 
 		AbortEarlySpecReads(address, serial);
 
@@ -1213,7 +1221,7 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 		log_entry->ClearWordLogEntries(); // need this here TODO - maybe move this to commit/abort time
 		log_entry->owner = this; // this is for CM - TODO: try to move it out of write path
 
-		SetStoreVector(log_entry, address, serial);
+		SetStoreVector(address, serial, log_entry);
 
 		// now try to lock it
 		if(lock_value == tid || atomic_cas_release(write_lock, WRITE_LOCK_CLEAR, log_entry)) {
@@ -1397,6 +1405,7 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 	VersionLock version = (VersionLock)atomic_load_acquire(read_lock);
 	Word value;
 
+	//TLSTM
 	unsigned prevActWr = PreviousActiveWriter(address, serial);
 
 	//Start by checking whether the object has been written
@@ -1404,7 +1413,7 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 	if(prevActWr >= tx_state.first_serial){
 		if(prevActWr < serial)
 			//Expresses the intention to read a value written by a previous task
-			SetLoadVector(serial);
+			SetLoadVector(address, serial);
 		//We find the value in the previous writer’s write-log
 		//and return it (similar to swisstm)
 		//return get-value(tid, prevActWr, addr);
@@ -1422,7 +1431,8 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 	}
 	//Expresses the intention to read a value written by
 	//a previous task (only needed for out-of-order tasks)
-	if(outOfOrderTask(serial)) SetLoadVector(serial);
+	if(serial > last_completed_task + 1)
+		SetLoadVector(address, serial);
 
 	while(true) {
 		if(is_read_locked(version)) {
@@ -1962,8 +1972,15 @@ inline void wlpdstm::TxMixinv::SetLoadVector(Word *address, unsigned serial){
 	load_vector[map_address_to_index(address)][serial % SPECDEPTH] = 1;
 }
 
-inline void wlpdstm::TxMixinv::SetStoreVector(WriteLogEntry *entry, Word *address, unsigned serial){
+inline void wlpdstm::TxMixinv::SetStoreVector(Word *address, unsigned serial, WriteLogEntry *entry){
 	store_vector[map_address_to_index(address)][serial % SPECDEPTH] = &entry;
+}
+
+inline void wlpdstm::TxMixinv::ClearSLVectors(int s){
+	for(int i=0; i < FULL_VERSION_LOCK_TABLE_SIZE / 2; i++) {
+		load_vector[i][s % SPECDEPTH] = 0;
+		store_vector[i][s % SPECDEPTH] = 0;
+	}
 }
 
 #ifdef ADAPTIVE_LOCKING
