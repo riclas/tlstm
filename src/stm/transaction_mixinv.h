@@ -144,6 +144,17 @@ namespace wlpdstm {
 		typedef Log<WriteWordLocalLogEntry> WriteLocalLog;
 #endif /* SUPPORT_LOCAL_WRITES */
 		typedef Log<WriteWordLogEntry> WriteWordLogMemPool;
+
+		struct ProgramThread {
+			unsigned next_serial;
+			unsigned last_commited_task, last_completed_task, next_task;
+			ReadLog read_log[SPECDEPTH];
+			WriteLog write_log[SPECDEPTH];
+			ReadLog fw_read_log[SPECDEPTH];
+			WriteLogEntry store_vector[FULL_VERSION_LOCK_TABLE_SIZE / 2][SPECDEPTH];
+			char load_vector[FULL_VERSION_LOCK_TABLE_SIZE / 2][SPECDEPTH];
+			TransactionState *last_tx_state;
+		};
 		
 		////////////////////////////////
 		// log related structures end //
@@ -209,7 +220,7 @@ namespace wlpdstm {
 		/**
 		 * Start a transaction.
 		 */
-		void TxStart(int lex_tx_id = NO_LEXICAL_TX);
+		void TxStart(int lex_tx_id = NO_LEXICAL_TX, bool start_tx, bool commit, int thread_id);
 
 		/**
 		 * Try to commit a transaction. Return 0 when commit is successful, reason for not succeeding otherwise.
@@ -288,7 +299,7 @@ namespace wlpdstm {
 		
 		bool Validate();
 		
-		bool ValidateCommit();
+		bool ValidateCommit(unsigned serial);
 		
 		void ReleaseReadLocks();
 		
@@ -431,6 +442,14 @@ namespace wlpdstm {
 		// its alignment is not important, as it is not shared
 		
 		Word valid_ts;
+
+		TransactionState *tx_state;
+
+		unsigned serial;
+
+		bool try_commit;
+
+		unsigned prog_thread_id;
 		
 #ifdef PRIVATIZATION_QUIESCENCE
 		Word *quiescence_ts;
@@ -484,27 +503,6 @@ namespace wlpdstm {
 		// local
 		MemoryManager mm;
 
-		//TLSTM
-		unsigned next_serial;
-
-		ReadLog read_log[SPECDEPTH];
-
-		WriteLog write_log[SPECDEPTH];
-
-		ReadLog fw_read_log[SPECDEPTH];
-
-		unsigned last_commited_task, last_completed_task, next_task;
-
-		char load_vector[FULL_VERSION_LOCK_TABLE_SIZE / 2][SPECDEPTH];
-
-		TransactionState last_tx_state;
-
-		TransactionState tx_state;
-
-		unsigned serial;
-
-		bool try_commit;
-
 	private:
 		
 		// local
@@ -546,7 +544,8 @@ namespace wlpdstm {
 		
 		static PaddedBool synchronization_in_progress;
 
-		static WriteLogEntry store_vector[FULL_VERSION_LOCK_TABLE_SIZE / 2][SPECDEPTH];
+		//TLSTM
+		static ProgramThread *prog_thread[MAX_THREADS / SPECDEPTH];
 
 #ifdef PRIVATIZATION_QUIESCENCE
 		static volatile Word quiescence_timestamp_array[MAX_THREADS];
@@ -749,9 +748,6 @@ inline void wlpdstm::TxMixinv::ThreadInit() {
 #ifdef PERFORMANCE_COUNTING
 	perf_cnt.ThreadInit();
 #endif /* PERFORMANCE_COUNTING */
-
-	//TLSTM
-	next_serial = 0;
 }
 
 ////////////////////////
@@ -812,9 +808,9 @@ inline wlpdstm::VersionLock *wlpdstm::TxMixinv::map_write_lock_to_read_lock(Writ
 // main algorithm start //
 //////////////////////////
 
-inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit) {
+inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit, int thread_id) {
 	//TLSTM
-	while(next_task - last_completed_task > SPECDEPTH);
+	while(prog_thread[thread_id]->next_task - prog_thread[thread_id]->last_completed_task > SPECDEPTH);
 
 #ifdef PERFORMANCE_COUNTING
 	perf_cnt_sampling.tx_start();
@@ -852,16 +848,17 @@ inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit
 #endif /* MM_EPOCH */
 
 	//TLSTM	
-	serial = next_serial++;
+	serial = prog_thread[thread_id]->next_serial++;
 	if(start_tx){
-		last_tx_state.valid_ts = valid_ts;
-		last_tx_state.read_only = true;
-		last_tx_state.first_serial = serial;
+		prog_thread[thread_id]->last_tx_state->valid_ts = valid_ts;
+		prog_thread[thread_id]->last_tx_state->read_only = true;
+		prog_thread[thread_id]->last_tx_state->first_serial = serial;
 	}
 	
-	tx_state = last_tx_state;
+	tx_state = prog_thread[thread_id]->last_tx_state;
 
 	try_commit = commit;
+	prog_thread_id = thread_id;
 	//TLSTM
 
 	CmStartTx();
@@ -894,7 +891,7 @@ inline Word wlpdstm::TxMixinv::IncrementCommitTs() {
 }
 
 inline void wlpdstm::TxMixinv::TxCommit() {
-	while(last_completed_task != serial-1);
+	while(prog_thread[prog_thread_id]->last_completed_task != serial-1);
 
 	RestartCause ret = TxTryCommit();
 
@@ -915,34 +912,34 @@ inline void wlpdstm::TxMixinv::TxCommit() {
 
 inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 	Word ts = valid_ts;
-	bool read_only = tx_state.read_only = write_log[serial % SPECDEPTH].empty();
+	bool read_only = tx_state->read_only = prog_thread[prog_thread_id]->write_log[serial % SPECDEPTH].empty();
 
 	//TLSTM
 	//Check valid_ts of task, validate or rollback
-	if(tx_state.valid_ts > ts){
-		if(!ValidateCommit(serial, tx_state.valid_ts)){
+	if(tx_state->valid_ts > ts){
+		if(!ValidateCommit(serial)){
 			Rollback(serial);
 
 			return RESTART_VALIDATION;
 		}
 	} else {
-		if(tx_state.valid_ts < ts){
-			for(unsigned s = tx_state.first_serial; s < serial; s++){
-				if(!ValidateCommit(s,ts)){
+		if(tx_state->valid_ts < ts){
+			for(unsigned s = tx_state->first_serial; s < serial; s++){
+				if(!ValidateCommit(s)){
 					Rollback(s);
 
 					return RESTART_VALIDATION;
 				}
 			}
 		}
-		tx_state.valid_ts = ts;
+		tx_state->valid_ts = ts;
 	}
 	
 	if(try_commit && !read_only) {
 		//TLSTM
 		// first lock all read locks
 		for(unsigned s = 0; s < SPECDEPTH; s++){
-			for(WriteLog::iterator iter = write_log[s].begin();iter.hasNext();iter.next()) {
+			for(WriteLog::iterator iter = prog_thread[prog_thread_id]->write_log[s].begin();iter.hasNext();iter.next()) {
 				WriteLogEntry &entry = *iter;
 				*(entry.read_lock) = READ_LOCK_SET;
 			}
@@ -989,13 +986,14 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 			return RESTART_VALIDATION;
 		}
 */
-		if(ts > tx_state.valid_ts+1){
-			for(unsigned s = tx_state.first_serial; s < serial; s++){
-				if(!ValidateCommit(s, ts)){
+		if(ts > tx_state->valid_ts+1){
+			for(unsigned s = tx_state->first_serial; s < serial; s++){
+				if(!ValidateCommit(s)){
 					ReleaseReadLocks();
 					stats.IncrementStatistics(Statistics::ABORT_COMMIT_VALIDATE);
 					IncrementReadAbortStats();
-					Rollback(tx_state.first_serial);
+					//errado? não é todas as tasks?
+					Rollback(tx_state->first_serial);
 
 					return RESTART_VALIDATION;
 				}
@@ -1006,7 +1004,7 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 		
 		// now update all written values
 		for(unsigned s = 0; s < SPECDEPTH; s++){
-			for(WriteLog::iterator iter = write_log[s].begin();iter.hasNext();iter.next()) {
+			for(WriteLog::iterator iter = prog_thread[prog_thread_id]->write_log[s].begin();iter.hasNext();iter.next()) {
 				WriteLogEntry &entry = *iter;
 
 				// now update actual values
@@ -1020,15 +1018,16 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 				// release locks
 				atomic_store_release(entry.read_lock, commitVersion);
 
+				//TLSTM errado!!
 				if(!ActiveWriterAfterThisTask(entry.head->address, serial)){
 					atomic_store_release(entry.write_lock, WRITE_LOCK_CLEAR);
 				}
 
-				//for each speculative reader
+				//for each speculative reader |  errado!!
 				unsigned index = map_address_to_index(entry.head->address);
-				for(unsigned s = last_completed_task; s < serial; s++){
-					if(load_vector[index][s % SPECDEPTH]){
-						ReadLogEntry *read_entry = fw_read_log[s % SPECDEPTH].get_next();
+				for(unsigned s = prog_thread[prog_thread_id]->last_completed_task; s < serial; s++){
+					if(prog_thread[prog_thread_id]->load_vector[index][s % SPECDEPTH]){
+						ReadLogEntry *read_entry = prog_thread[prog_thread_id]->fw_read_log[s % SPECDEPTH].get_next();
 						read_entry->read_lock = read_lock;
 						read_entry->version = version;
 					}
@@ -1038,13 +1037,13 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 	} else {
 		stats.IncrementStatistics(Statistics::COMMIT_READ_ONLY);
 	}
-	
+
 	//TLSTM
-	last_completed_task = serial;
+	prog_thread[prog_thread_id]->last_completed_task = serial;
 	if(!try_commit){
 		return;
 	}
-	last_commited_task = serial;
+	prog_thread[prog_thread_id]->last_commited_task = serial;
 
 	ClearSLVectors(serial);
 
@@ -1065,11 +1064,11 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 #endif /* INFLUENCE_DIAGRAM_STATS */
 
 	if(!read_only) {
-		write_log[serial % SPECDEPTH].clear();
+		prog_thread[prog_thread_id]->write_log[serial % SPECDEPTH].clear();
 		write_word_log_mem_pool.clear();
 	}
 
-	read_log[serial % SPECDEPTH].clear();
+	prog_thread[prog_thread_id]->read_log[serial % SPECDEPTH].clear();
 #ifdef SUPPORT_LOCAL_WRITES
 	write_local_log.clear();
 #endif /* SUPPORT_LOCAL_WRITES */
@@ -1092,7 +1091,7 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 
 inline void wlpdstm::TxMixinv::ReleaseReadLocks() {
 	for(unsigned s = 0; s < SPECDEPTH; s++){
-		for(WriteLog::iterator iter = write_log[s].begin();iter.hasNext();iter.next()) {
+		for(WriteLog::iterator iter = prog_thread[prog_thread_id]->write_log[s].begin();iter.hasNext();iter.next()) {
 			WriteLogEntry &entry = *iter;
 			*(entry.read_lock) = entry.old_version;
 		}
@@ -1116,14 +1115,14 @@ inline void wlpdstm::TxMixinv::Rollback() {
 #endif /* SUPPORT_LOCAL_WRITES */
 
 	// drop locks
-	for(WriteLog::iterator iter = write_log[serial % SPECDEPTH].begin();iter.hasNext();iter.next()) {
+	for(WriteLog::iterator iter = prog_thread[prog_thread_id]->write_log[serial % SPECDEPTH].begin();iter.hasNext();iter.next()) {
 		WriteLogEntry &entry = *iter;
 		*entry.write_lock = WRITE_LOCK_CLEAR;
 	}
 	
 	// empty logs
-	read_log[serial % SPECDEPTH].clear();
-	write_log[serial % SPECDEPTH].clear();
+	prog_thread[prog_thread_id]->read_log[serial % SPECDEPTH].clear();
+	prog_thread[prog_thread_id]->write_log[serial % SPECDEPTH].clear();
 #ifdef SUPPORT_LOCAL_WRITES
 	write_local_log.clear();
 #endif /* SUPPORT_LOCAL_WRITES */
@@ -1163,7 +1162,7 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 	//TLSTM
 	unsigned prevActWr = PreviousActiveWriter(address, serial);
 
-	if(prevActWr >= tx_state.first_serial) {
+	if(prevActWr >= tx_state->first_serial) {
 		if(prevActWr != serial)
 			setStoreVector(address, serial, (WriteLogEntry *)lock_value);
 
@@ -1216,7 +1215,7 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 		}
 		
 		// prepare write log entry
-		WriteLogEntry *log_entry = write_log[serial % SPECDEPTH].get_next();
+		WriteLogEntry *log_entry = prog_thread[prog_thread_id]->write_log[serial % SPECDEPTH].get_next();
 		log_entry->write_lock = write_lock;
 		log_entry->ClearWordLogEntries(); // need this here TODO - maybe move this to commit/abort time
 		log_entry->owner = this; // this is for CM - TODO: try to move it out of write path
@@ -1224,7 +1223,7 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 		SetStoreVector(address, serial, log_entry);
 
 		// now try to lock it
-		if(lock_value == tid || atomic_cas_release(write_lock, WRITE_LOCK_CLEAR, log_entry)) {
+		if(lock_value == prog_thread_id || atomic_cas_release(write_lock, WRITE_LOCK_CLEAR, log_entry)) {
 			abortEarlySpecReads(address, serial);
 
 			// need to check read set validity if this address was read before
@@ -1261,7 +1260,7 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 		
 		// someone locked it in the meantime
 		// return last element back to the log
-		write_log[serial % SPECDEPTH].delete_last();
+		prog_thread[prog_thread_id]->write_log[serial % SPECDEPTH].delete_last();
 		
 		// read version again
 		lock_value = (WriteLock)atomic_load_acquire(write_lock);
@@ -1410,7 +1409,7 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 
 	//Start by checking whether the object has been written
 	//by a task before me from the same user-transaction
-	if(prevActWr >= tx_state.first_serial){
+	if(prevActWr >= tx_state->first_serial){
 		if(prevActWr < serial)
 			//Expresses the intention to read a value written by a previous task
 			SetLoadVector(address, serial);
@@ -1431,7 +1430,7 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 	}
 	//Expresses the intention to read a value written by
 	//a previous task (only needed for out-of-order tasks)
-	if(serial > last_completed_task + 1)
+	if(serial > prog_thread[prog_thread_id]->last_completed_task + 1)
 		SetLoadVector(address, serial);
 
 	while(true) {
@@ -1466,8 +1465,8 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 		}
 		prevActWr = PreviousActiveWriter(address, serial);
 
-		if(prevActWr == NULL){
-			ReadLogEntry *entry = read_log[serial % SPECDEPTH].get_next();
+		if(prevActWr == -1){
+			ReadLogEntry *entry = prog_thread[prog_thread_id]->read_log[serial % SPECDEPTH].get_next();
 			entry->read_lock = read_lock;
 			entry->version = version;
 		}
@@ -1510,7 +1509,7 @@ inline bool wlpdstm::TxMixinv::ShouldExtend(VersionLock version) {
 inline bool wlpdstm::TxMixinv::Validate() {
 	ReadLog::iterator iter;
 	
-	for(iter = read_log[serial % SPECDEPTH].begin();iter.hasNext();iter.next()) {
+	for(iter = prog_thread[prog_thread_id]->read_log[serial % SPECDEPTH].begin();iter.hasNext();iter.next()) {
 		ReadLogEntry &entry = *iter;
 		VersionLock currentVersion = (VersionLock)atomic_load_no_barrier(entry.read_lock);
 		
@@ -1523,10 +1522,28 @@ inline bool wlpdstm::TxMixinv::Validate() {
 }
 
 // validate invoked at commit time
-inline bool wlpdstm::TxMixinv::ValidateCommit() {
+inline bool wlpdstm::TxMixinv::ValidateCommit(unsigned s) {
 	ReadLog::iterator iter;
-	
-	for(iter = read_log[serial % SPECDEPTH].begin();iter.hasNext();iter.next()) {
+
+	for(iter = prog_thread[prog_thread_id]->read_log[s % SPECDEPTH].begin();iter.hasNext();iter.next()) {
+		ReadLogEntry &entry = *iter;
+		VersionLock currentVersion = (VersionLock)atomic_load_no_barrier(entry.read_lock);
+
+		if(currentVersion != entry.version) {
+			if(is_read_locked(currentVersion)) {
+				WriteLock *write_lock = map_read_lock_to_write_lock(entry.read_lock);
+				WriteLogEntry *log_entry = (WriteLogEntry *)atomic_load_no_barrier(write_lock);
+
+				if(LockedByMe(log_entry)) {
+					continue;
+				}
+			}
+
+			return false;
+		}
+	}
+
+	for(iter = prog_thread[prog_thread_id]->fw_read_log[s % SPECDEPTH].begin();iter.hasNext();iter.next()) {
 		ReadLogEntry &entry = *iter;
 		VersionLock currentVersion = (VersionLock)atomic_load_no_barrier(entry.read_lock);
 		
@@ -1543,7 +1560,7 @@ inline bool wlpdstm::TxMixinv::ValidateCommit() {
 			return false;
 		}
 	}
-	
+
 	return true;
 }
 
@@ -1946,21 +1963,42 @@ inline void wlpdstm::TxMixinv::RestartCommitTS() {
 	InitializeReadLocks();
 }
 
-inline void wlpdstm::TxMixinv::AbortEarlySpecReads(){
+inline void wlpdstm::TxMixinv::AbortEarlySpecReads(Word *address, unsigned s){
+	unsigned index = map_address_to_index(address);
+	unsigned future_writer = prog_thread[prog_thread_id]->next_serial-1;
 
+	for(int i = s+1; i < prog_thread[prog_thread_id]->next_serial-1; i++){
+		if(prog_thread[prog_thread_id]->store_vector[index][i % SPECDEPTH]){
+			future_writer = i;
+		}
+	}
+
+	for(int i = s+1; i <= future_writer; i++){
+		if(prog_thread[prog_thread_id]->load_vector[index][i % SPECDEPTH]){
+			for(int j=i; j < next_serial;j++){
+				AbortTask(j);
+			}
+			return;
+		}
+	}
 }
 
-inline bool wlpdstm::TxMixinv::ActiveWriterAfterThisTask(Word *address, unsigned serial){
+inline bool wlpdstm::TxMixinv::ActiveWriterAfterThisTask(Word *address, unsigned s){
 	unsigned index = map_address_to_index(address);
 
-	//How do i know which are the tasks running after this one? maybe we need a max_serial?
+	for(int i = s+1; i < prog_thread[prog_thread_id]->next_serial; i++){
+		if(prog_thread[prog_thread_id]->store_vector[index][i % SPECDEPTH]){
+			return true;
+		}
+	}
+	return false;
 }
 
-inline unsigned wlpdstm::TxMixinv::PreviousActiveWriter(Word *address, unsigned serial){
+inline unsigned wlpdstm::TxMixinv::PreviousActiveWriter(Word *address, unsigned s){
 	unsigned index = map_address_to_index(address);
 
-	for(unsigned i = serial-1; i > last_commited_task; i--){
-		if(store_vector[index][i % SPECDEPTH]){
+	for(int i = s-1; i > prog_thread[prog_thread_id]->last_commited_task; i--){
+		if(prog_thread[prog_thread_id]->store_vector[index][i % SPECDEPTH]){
 			return i;
 		}
 	}
@@ -1968,18 +2006,18 @@ inline unsigned wlpdstm::TxMixinv::PreviousActiveWriter(Word *address, unsigned 
 	return -1;
 }
 
-inline void wlpdstm::TxMixinv::SetLoadVector(Word *address, unsigned serial){
-	load_vector[map_address_to_index(address)][serial % SPECDEPTH] = 1;
+inline void wlpdstm::TxMixinv::SetLoadVector(Word *address, unsigned s){
+	prog_thread[prog_thread_id]->load_vector[map_address_to_index(address)][s % SPECDEPTH] = 1;
 }
 
-inline void wlpdstm::TxMixinv::SetStoreVector(Word *address, unsigned serial, WriteLogEntry *entry){
-	store_vector[map_address_to_index(address)][serial % SPECDEPTH] = &entry;
+inline void wlpdstm::TxMixinv::SetStoreVector(Word *address, unsigned s, WriteLogEntry *entry){
+	prog_thread[prog_thread_id]->store_vector[map_address_to_index(address)][s % SPECDEPTH] = &entry;
 }
 
 inline void wlpdstm::TxMixinv::ClearSLVectors(int s){
 	for(int i=0; i < FULL_VERSION_LOCK_TABLE_SIZE / 2; i++) {
-		load_vector[i][s % SPECDEPTH] = 0;
-		store_vector[i][s % SPECDEPTH] = 0;
+		prog_thread[prog_thread_id]->load_vector[i][s % SPECDEPTH] = 0;
+		prog_thread[prog_thread_id]->store_vector[i][s % SPECDEPTH] = 0;
 	}
 }
 

@@ -8,7 +8,7 @@ number da próxima task a criar, thread-id, etc) -feito
 tasks que leram cada escrita no log -feito
 - modificar load e store -feito
 - modificar commit -feito
-- criar array para metadados das threads (neste momento está tudo partilhado)
+- criar array para metadados das threads (neste momento está tudo partilhado)-feito
 - modificar validate e rollback
 - programa de teste (com main que cria threads e, em cada thread, cria
 umas quantas tasks e transacções)
