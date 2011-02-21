@@ -1160,18 +1160,12 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 	// read lock value
 	WriteLock lock_value = (WriteLock)atomic_load_no_barrier(write_lock);
 	//TLSTM
-	unsigned prevActWr = PreviousActiveWriter(address, serial);
+	WriteLogEntry* log_entry = prog_thread[prog_thread_id]->store_vector[address][serial];
 
-	if(prevActWr >= tx_state->first_serial) {
-		if(prevActWr != serial)
-			setStoreVector(address, serial, (WriteLogEntry *)lock_value);
-
-		AbortEarlySpecReads(address, serial);
-
-		return (WriteLogEntry *)lock_value;
-	}
-
-	bool locked = is_write_locked(lock_value);
+	if(log_entry){
+		log_entry->write_lock = lock_value;
+	} else {
+		bool locked = is_write_locked(lock_value);
 		
 #ifdef DETAILED_STATS
 	stats.IncrementStatistics(Statistics::NEW_WRITES);
@@ -1181,22 +1175,22 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 	bool false_conflict_detected = false;
 #endif /* ADAPTIVE_LOCKING */
 	
-	while(true) {		
-		if(locked && lock_value != tid) {
+		while(true) {
+			if(locked && lock_value != prog_thread_id) {
 #ifdef ADAPTIVE_LOCKING
-			if(!false_conflict_detected) {
-				false_conflict_detected = true;
-				
-				if(IsFalseConflict((WriteLogEntry *)lock_value, address)) {
-					stats.IncrementStatistics(Statistics::FALSE_CONFLICTS);
-					++false_sharing;
+				if(!false_conflict_detected) {
+					false_conflict_detected = true;
+
+					if(IsFalseConflict((WriteLogEntry *)lock_value, address)) {
+						stats.IncrementStatistics(Statistics::FALSE_CONFLICTS);
+						++false_sharing;
+					}
 				}
-			}
 #endif /* ADAPTIVE_LOCKING */
 			
-			if(ShouldAbortWrite(write_lock)) {
-				stats.IncrementStatistics(Statistics::ABORT_WRITE_LOCKED);
-				IncrementWriteAbortStats();
+				if(ShouldAbortWrite(write_lock)) {
+					stats.IncrementStatistics(Statistics::ABORT_WRITE_LOCKED);
+					IncrementWriteAbortStats();
 #ifdef ADAPTIVE_LOCKING
 				++aborts;
 #endif /* ADAPTIVE_LOCKING */
@@ -1206,70 +1200,69 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 				//					++false_sharing;
 				//				}
 				
-				TxRestart(RESTART_LOCK);
-			} else {
-				lock_value = (WriteLock)atomic_load_acquire(write_lock);
-				locked = is_write_locked(lock_value);
-				YieldCPU();
-			}
-		}
-		
-		// prepare write log entry
-		WriteLogEntry *log_entry = prog_thread[prog_thread_id]->write_log[serial % SPECDEPTH].get_next();
-		log_entry->write_lock = write_lock;
-		log_entry->ClearWordLogEntries(); // need this here TODO - maybe move this to commit/abort time
-		log_entry->owner = this; // this is for CM - TODO: try to move it out of write path
-
-		SetStoreVector(address, serial, log_entry);
-
-		// now try to lock it
-		if(lock_value == prog_thread_id || atomic_cas_release(write_lock, WRITE_LOCK_CLEAR, log_entry)) {
-			abortEarlySpecReads(address, serial);
-
-			// need to check read set validity if this address was read before
-			// we skip this read_before() check TODO: maybe do that
-			VersionLock *read_lock = map_write_lock_to_read_lock(write_lock);
-			VersionLock version = (VersionLock)atomic_load_acquire(read_lock);
-			
-//			if(get_value(version) > valid_ts) {
-			if(ShouldExtend(version)) {
-				if(!Extend()) {
-					stats.IncrementStatistics(Statistics::ABORT_WRITE_VALIDATE);
-					IncrementReadAbortStats();
-#ifdef ADAPTIVE_LOCKING
-					++aborts;
-#endif /* ADAPTIVE_LOCKING */
-					TxRestart(RESTART_VALIDATION);
+					TxRestart(RESTART_LOCK);
+				} else {
+					lock_value = (WriteLock)atomic_load_acquire(write_lock);
+					locked = is_write_locked(lock_value);
+					YieldCPU();
 				}
 			}
-			
-			// success
-			log_entry->read_lock = read_lock;
-			log_entry->old_version = version;
-			CmOnAccess();
-			
-#ifdef ADAPTIVE_LOCKING
-			if(larger_lock_extent_table.Set(map_address_to_index(address, larger_lock_extent))) {
-				stats.IncrementStatistics(Statistics::LARGER_TABLE_WRITE_HITS);
-				++larger_table_hits;
+		
+			// prepare write log entry
+			// TLSTM errado - ainda não guarda o ptid no write_lock
+			WriteLogEntry *log_entry = prog_thread[prog_thread_id]->write_log[serial % SPECDEPTH].get_next();
+			log_entry->write_lock = write_lock;
+			log_entry->ClearWordLogEntries(); // need this here TODO - maybe move this to commit/abort time
+			log_entry->owner = this; // this is for CM - TODO: try to move it out of write path
+
+			SetStoreVector(address, serial, log_entry);
+
+			// now try to lock it
+			if(lock_value == prog_thread_id || atomic_cas_release(write_lock, WRITE_LOCK_CLEAR, log_entry)) {
+				break;
 			}
-#endif /* ADAPTIVE_LOCKING */
+			// someone locked it in the meantime
+			// return last element back to the log
+			prog_thread[prog_thread_id]->write_log[serial % SPECDEPTH].delete_last();
 			
-			return log_entry;
+			// read version again
+			lock_value = (WriteLock)atomic_load_acquire(write_lock);
+			locked = is_write_locked(lock_value);
+			YieldCPU();
 		}
-		
-		// someone locked it in the meantime
-		// return last element back to the log
-		prog_thread[prog_thread_id]->write_log[serial % SPECDEPTH].delete_last();
-		
-		// read version again
-		lock_value = (WriteLock)atomic_load_acquire(write_lock);
-		locked = is_write_locked(lock_value);
-		YieldCPU();
+	}
+
+	// need to check read set validity if this address was read before
+	// we skip this read_before() check TODO: maybe do that
+	VersionLock *read_lock = map_write_lock_to_read_lock(write_lock);
+	VersionLock version = (VersionLock)atomic_load_acquire(read_lock);
+
+//			if(get_value(version) > valid_ts) {
+	if(ShouldExtend(version)) {
+		if(!Extend()) {
+			stats.IncrementStatistics(Statistics::ABORT_WRITE_VALIDATE);
+			IncrementReadAbortStats();
+#ifdef ADAPTIVE_LOCKING
+			++aborts;
+#endif /* ADAPTIVE_LOCKING */
+			TxRestart(RESTART_VALIDATION);
+		}
 	}
 	
-	// this can never happen
-	return NULL;
+	// success
+	log_entry->read_lock = read_lock;
+	log_entry->old_version = version;
+	CmOnAccess();
+
+#ifdef ADAPTIVE_LOCKING
+	if(larger_lock_extent_table.Set(map_address_to_index(address, larger_lock_extent))) {
+		stats.IncrementStatistics(Statistics::LARGER_TABLE_WRITE_HITS);
+		++larger_table_hits;
+	}
+#endif /* ADAPTIVE_LOCKING */
+	abortEarlySpecReads(address, serial);
+
+	return log_entry;
 }
 
 inline void wlpdstm::TxMixinv::WriteWord(Word *address, Word value, Word mask) {
