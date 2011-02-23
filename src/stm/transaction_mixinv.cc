@@ -18,6 +18,8 @@ wlpdstm::TxMixinv *wlpdstm::TxMixinv::transactions[MAX_THREADS];
 
 Word wlpdstm::TxMixinv::thread_count;
 
+wlpdstm::TxMixinv::ProgramThread *wlpdstm::TxMixinv::prog_thread[MAX_THREADS / SPECDEPTH];
+
 CACHE_LINE_ALIGNED wlpdstm::PaddedBool wlpdstm::TxMixinv::synchronization_in_progress;
 
 #ifdef PRIVATIZATION_QUIESCENCE
