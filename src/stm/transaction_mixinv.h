@@ -237,6 +237,7 @@ namespace wlpdstm {
 		 */
 		void Rollback(unsigned s);
 
+		void Rollback();
 		/**
 		 * Rollback transaction's effects and jump to the beginning with flag specifying abort.
 		 */		
@@ -1133,17 +1134,20 @@ inline void wlpdstm::TxMixinv::ReleaseReadLocks() {
 	}
 }
 
-// updates only write locks
 inline void wlpdstm::TxMixinv::Rollback(unsigned start_serial) {
+	for(unsigned s = start_serial; s < prog_thread[prog_thread_id]->next_task; s++){
+		//errado: tell other tasks to rollback asap
+	}
+	Rollback();
+}
+
+// updates only write locks
+inline void wlpdstm::TxMixinv::Rollback() {
 	if(rolled_back) {
 		return;
 	}
 
 	rolled_back = true;
-
-	for(unsigned s = start_serial; s < prog_thread[prog_thread_id]->next_task; s++){
-		//tell other tasks to rollback asap
-	}
 
 #ifdef SUPPORT_LOCAL_WRITES
 	// rollback local writes

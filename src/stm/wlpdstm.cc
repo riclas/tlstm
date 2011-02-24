@@ -29,6 +29,10 @@ void wlpdstm_start_tx() {
 	wlpdstm::CurrentTransaction::TxStart();
 }
 
+void wlpdstm_start_tx_ptid(int prog_thread_id) {
+	wlpdstm::CurrentTransaction::TxStart(NO_LEXICAL_TX, true, true, prog_thread_id);
+}
+
 void wlpdstm_start_tx_id(int lexical_tx_id) {
 	wlpdstm::CurrentTransaction::TxStart(lexical_tx_id);
 }

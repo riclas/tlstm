@@ -30,6 +30,7 @@ extern "C" {
 
 	// start/end tx
 	void wlpdstm_start_tx() __attribute__ ((noinline));
+	void wlpdstm_start_tx_ptid(int prog_thread_id) __attribute__ ((noinline));
 	void wlpdstm_start_tx_id(int lexical_tx_id) __attribute__ ((noinline));
 
 	LONG_JMP_BUF *wlpdstm_get_long_jmp_buf();
