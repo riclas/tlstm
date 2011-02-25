@@ -120,6 +120,7 @@ namespace wlpdstm {
 			VersionLock old_version;
 			
 			TxMixinv *owner;
+			unsigned ptid;
 			
 			WriteWordLogEntry *head;
 			
@@ -154,6 +155,7 @@ namespace wlpdstm {
 			WriteLogEntry *store_vector[FULL_VERSION_LOCK_TABLE_SIZE / 2][SPECDEPTH];
 			char load_vector[FULL_VERSION_LOCK_TABLE_SIZE / 2][SPECDEPTH];
 			TransactionState *last_tx_state;
+			bool aborted[SPECDEPTH];
 		};
 		
 		////////////////////////////////
@@ -720,6 +722,7 @@ inline void wlpdstm::TxMixinv::InitializeProgramThreads() {
 		prog_thread[i]->last_tx_state = NULL;
 
 		for(unsigned j=0; j < SPECDEPTH; j++){
+			prog_thread[i]->aborted[j] = false;
 			for(unsigned k=0; k < FULL_VERSION_LOCK_TABLE_SIZE / 2; k++){
 				prog_thread[i]->load_vector[k][j] = 0;
 				prog_thread[i]->store_vector[k][j] = 0;
@@ -1136,8 +1139,9 @@ inline void wlpdstm::TxMixinv::ReleaseReadLocks() {
 
 inline void wlpdstm::TxMixinv::Rollback(unsigned start_serial) {
 	for(unsigned s = start_serial; s < prog_thread[prog_thread_id]->next_task; s++){
-		//errado: tell other tasks to rollback asap
+		prog_thread[prog_thread_id]->aborted[s % SPECDEPTH] = true;
 	}
+
 	Rollback();
 }
 
@@ -1219,7 +1223,7 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 #endif /* ADAPTIVE_LOCKING */
 	
 		while(true) {
-			if(locked && lock_value != prog_thread_id) {
+			if(locked && ((WriteLogEntry *)lock_value)->ptid != prog_thread_id) {
 #ifdef ADAPTIVE_LOCKING
 				if(!false_conflict_detected) {
 					false_conflict_detected = true;
@@ -1256,11 +1260,13 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 			log_entry->write_lock = write_lock;
 			log_entry->ClearWordLogEntries(); // need this here TODO - maybe move this to commit/abort time
 			log_entry->owner = this; // this is for CM - TODO: try to move it out of write path
+			log_entry->ptid = prog_thread_id;
 
 			SetStoreVector(address, serial, log_entry);
 
 			// now try to lock it
-			if(lock_value == prog_thread_id || atomic_cas_release(write_lock, WRITE_LOCK_CLEAR, prog_thread_id)) {
+			if((lock_value != WRITE_LOCK_CLEAR && ((WriteLogEntry *)lock_value)->ptid == prog_thread_id)
+					|| atomic_cas_release(write_lock, WRITE_LOCK_CLEAR, log_entry)) {
 				break;
 			}
 			// someone locked it in the meantime
@@ -1737,15 +1743,20 @@ inline bool wlpdstm::TxMixinv::ShouldAbortWrite(WriteLock *write_lock) {
 	if(aborted_externally) {
 		return true;
 	}
-	
+
+	if(prog_thread[prog_thread_id]->aborted[serial % SPECDEPTH] == true) {
+		prog_thread[prog_thread_id]->aborted[serial % SPECDEPTH] = false;
+		return true;
+	}
+
 	if(greedy_ts == MINIMUM_TS) {
 		return true;
 	}
 	
 	WriteLock lock_value = (WriteLock)atomic_load_no_barrier(write_lock);
 	
-	if(is_write_locked(lock_value)) {//errado: sem guardar a logentry no writelock não sei qual é a serial da task que tentou escrever nesta address
-		WriteLogEntry *log_entry = prog_thread[lock_value]->store_vector[map_write_lock_to_index(write_lock)][serial % SPECDEPTH];
+	if(is_write_locked(lock_value)) {
+		WriteLogEntry *log_entry = (WriteLogEntry *)lock_value;
 		TxMixinv *owner = log_entry->owner;
 		
 		if(CMStrongerThan(owner)) {
