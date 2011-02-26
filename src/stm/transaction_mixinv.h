@@ -76,7 +76,7 @@
 
 //TLSTM
 #define SPECDEPTH 2
-#define NONE 1 << 30
+#define NONE -1
 
 namespace wlpdstm {
 	
@@ -324,7 +324,7 @@ namespace wlpdstm {
 
 		bool ActiveWriterAfterThisTask(Word *address, unsigned s);
 
-		unsigned PreviousActiveWriter(Word *address, unsigned s);
+		int PreviousActiveWriter(Word *address, unsigned s);
 
 		void SetLoadVector(Word *address, unsigned s);
 
@@ -1206,7 +1206,7 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 #ifdef ADAPTIVE_LOCKING
 	++writes;
 #endif /* ADAPTIVE_LOCKING */
-	printf("write word!!\n");
+
 	// read lock value
 	WriteLock lock_value = (WriteLock)atomic_load_no_barrier(write_lock);
 	bool locked = is_write_locked(lock_value);
@@ -1453,11 +1453,11 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 	if(serial > prog_thread[prog_thread_id].last_completed_task + 1)
 		SetLoadVector(address, serial);
 
-	unsigned writer = PreviousActiveWriter(address, serial);
+	int writer = PreviousActiveWriter(address, serial);
 
 	//Start by checking whether the object has been written
 	//by a task before me from the same user-transaction
-	if(writer >= tx_state->first_serial){
+	if(writer >= (int)tx_state->first_serial){
 		//We find the value in the store vector and return it
 		//return get-value(tid, prevActWr, addr);
 		WriteLogEntry* log_entry = prog_thread[prog_thread_id].store_vector[map_address_to_index(address)][writer % SPECDEPTH];
@@ -2021,7 +2021,7 @@ inline void wlpdstm::TxMixinv::AbortEarlySpecReads(Word *address, unsigned s){
 	for(unsigned i = s+1; i <= future_writer; i++){
 		if(prog_thread[prog_thread_id].load_vector[index][i % SPECDEPTH]){
 			for(unsigned j=i; j < prog_thread[prog_thread_id].next_task;j++){
-				//AbortTask(j);
+				prog_thread[prog_thread_id].aborted[j % SPECDEPTH] = true;
 			}
 			return;
 		}
@@ -2039,7 +2039,7 @@ inline bool wlpdstm::TxMixinv::ActiveWriterAfterThisTask(Word *address, unsigned
 	return false;
 }
 
-inline unsigned wlpdstm::TxMixinv::PreviousActiveWriter(Word *address, unsigned s){
+inline int wlpdstm::TxMixinv::PreviousActiveWriter(Word *address, unsigned s){
 	unsigned index = map_address_to_index(address);
 
 	for(unsigned i = s-1; i > prog_thread[prog_thread_id].last_commited_task; i--){
