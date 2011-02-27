@@ -960,7 +960,7 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 		Rollback();
 		return RESTART_EXTERNAL;
 	}
-
+printf("trycommit\n");
 	Word ts = valid_ts;
 	bool read_only = tx_state->read_only = prog_thread[prog_thread_id].write_log[serial % SPECDEPTH].empty();
 
@@ -1212,7 +1212,7 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 #ifdef ADAPTIVE_LOCKING
 	++writes;
 #endif /* ADAPTIVE_LOCKING */
-
+printf("write word\n");
 	// read lock value
 	WriteLock lock_value = (WriteLock)atomic_load_no_barrier(write_lock);
 	bool locked = is_write_locked(lock_value);
@@ -1486,7 +1486,7 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 			continue;
 		}
 
-		//errado: qual é a diferença daqui para o anterior get-value??
+		//errado? se calhar dá para simplificar
 		if(writer != NONE){
 			//We find the value in the previous writer’s store vector
 			WriteLogEntry* log_entry = prog_thread[prog_thread_id].store_vector[map_address_to_index(address)][writer % SPECDEPTH];
@@ -1504,39 +1504,40 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 		}
 		VersionLock version_2 = (VersionLock)atomic_load_acquire(read_lock);
 
-		if(version != version_2) {
-			version = version_2;
-			YieldCPU();
-			continue;
-		}
-		writer = PreviousActiveWriter(address, serial);
+		if(version == version_2)
+			break;
 
-		if(writer == NONE){
-			ReadLogEntry *entry = prog_thread[prog_thread_id].read_log[serial % SPECDEPTH].get_next();
-			entry->read_lock = read_lock;
-			entry->version = version;
-		}
+		version = version_2;
+		writer = PreviousActiveWriter(address, serial);
+		YieldCPU();
+	}
+
+	if(writer == NONE){
+		ReadLogEntry *entry = prog_thread[prog_thread_id].read_log[serial % SPECDEPTH].get_next();
+		entry->read_lock = read_lock;
+		entry->version = version;
 
 		if(ShouldExtend(version)) {
 			if(!Extend()) {
+				//printf("restarting\n");
 				// need to restart here
 				stats.IncrementStatistics(Statistics::ABORT_READ_VALIDATE);
 				IncrementReadAbortStats();
-#ifdef ADAPTIVE_LOCKING
+	#ifdef ADAPTIVE_LOCKING
 				++aborts;
-#endif /* ADAPTIVE_LOCKING */
+	#endif /* ADAPTIVE_LOCKING */
 				TxRestart(RESTART_VALIDATION);
 			}
 		}
-		
-		break;
 	}
 
+//printf("return read word\n");
 	return value;
 }
 
 // TODO add here a check for a signal from another thread
 inline bool wlpdstm::TxMixinv::ShouldExtend(VersionLock version) {
+	//printf("should extend \n");
 	if(get_value(version) > valid_ts) {
 		return true;
 	}
