@@ -891,12 +891,12 @@ inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit
 	//TLSTM
 	serial = prog_thread[thread_id].next_task++;
 
+	//errado? ha maneira melhor de criar o novo tx_state?
 	if(start_tx){
-		TransactionState txs;
-		txs.first_serial = serial;
-		txs.read_only = true;
-		txs.valid_ts = valid_ts;
-		prog_thread[thread_id].last_tx_state = &txs;
+		prog_thread[thread_id].last_tx_state = (TransactionState*)malloc(sizeof(TransactionState));
+		prog_thread[thread_id].last_tx_state->first_serial = serial;
+		prog_thread[thread_id].last_tx_state->read_only = true;
+		prog_thread[thread_id].last_tx_state->valid_ts = valid_ts;
 	}
 
 	tx_state = prog_thread[thread_id].last_tx_state;
@@ -955,6 +955,12 @@ inline void wlpdstm::TxMixinv::TxCommit() {
 }
 
 inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
+	if(prog_thread[prog_thread_id].aborted[serial % SPECDEPTH]){
+		prog_thread[prog_thread_id].aborted[serial % SPECDEPTH] = false;
+		Rollback();
+		return RESTART_EXTERNAL;
+	}
+
 	Word ts = valid_ts;
 	bool read_only = tx_state->read_only = prog_thread[prog_thread_id].write_log[serial % SPECDEPTH].empty();
 
@@ -1525,7 +1531,7 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 		
 		break;
 	}
-	
+
 	return value;
 }
 
