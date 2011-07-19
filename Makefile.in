@@ -29,7 +29,7 @@ endif
 
 ########################################
 # set compiler and linker options
-ATOMIC_OPS_INCLUDE = /home/dragojev/local/libatomicops/include
+ATOMIC_OPS_INCLUDE = /usr/local/include
 
 COMMON_CPPFLAGS = -Wall -I$(ATOMIC_OPS_INCLUDE) -fno-strict-aliasing
 COMMON_LDFLAGS  =
@@ -180,7 +180,7 @@ CPPFLAGS_gp      =  -ggdb -pg -O3
 
 ifeq ($(PROFILE), )
 	ifeq ($(COMPILER), gnu)
-		PROFILE = fast
+		PROFILE = debug
 	endif
 
 	ifeq ($(COMPILER), intel)

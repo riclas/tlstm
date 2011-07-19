@@ -13,8 +13,8 @@ namespace wlpdstm {
 
 	template<typename T, bool INIT = true>
 	struct GlobalInitInvoker {
-		static void GlobalInit() {
-			T::GlobalInit();
+		static void GlobalInit(int nb_tasks) {
+			T::GlobalInit(nb_tasks);
 		}
 	};
 
@@ -105,8 +105,8 @@ namespace wlpdstm {
 	template<class T, bool GLOBAL_INIT, bool THREAD_INIT>
 	class Tls {
 		public:
-			static void GlobalInit() {
-				GlobalInitInvoker<T, GLOBAL_INIT>::GlobalInit();
+			static void GlobalInit(int nb_tasks) {
+				GlobalInitInvoker<T, GLOBAL_INIT>::GlobalInit(nb_tasks);
 			}
 
 			static void ThreadInit() {

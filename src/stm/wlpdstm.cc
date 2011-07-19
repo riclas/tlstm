@@ -17,8 +17,8 @@
 
 extern "C" {
 
-void wlpdstm_global_init() {
-	wlpdstm::CurrentTransaction::GlobalInit();
+void wlpdstm_global_init(int nb_tasks) {
+	wlpdstm::CurrentTransaction::GlobalInit(nb_tasks);
 }
 
 void wlpdstm_thread_init() {

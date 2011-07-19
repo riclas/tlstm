@@ -24,7 +24,7 @@ extern "C" {
 	typedef void *tx_desc;
 
 	// initialization
-	void wlpdstm_global_init();
+	void wlpdstm_global_init(int nb_tasks);
 
 	void wlpdstm_thread_init();
 

@@ -18,7 +18,11 @@ wlpdstm::TxMixinv *wlpdstm::TxMixinv::transactions[MAX_THREADS];
 
 Word wlpdstm::TxMixinv::thread_count;
 
-wlpdstm::TxMixinv::ProgramThread wlpdstm::TxMixinv::prog_thread[MAX_THREADS / SPECDEPTH];
+int wlpdstm::TxMixinv::specdepth;
+
+wlpdstm::TxMixinv::ProgramThread wlpdstm::TxMixinv::prog_thread[2];
+
+//bool wlpdstm::TxMixinv::sigsegv_caught;
 
 CACHE_LINE_ALIGNED wlpdstm::PaddedBool wlpdstm::TxMixinv::synchronization_in_progress;
 

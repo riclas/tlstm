@@ -62,7 +62,10 @@ namespace wlpdstm {
 
 #define MINIMUM_VERSION ((Word *)0)
 
-#define WRITE_LOCK_CLEAR ((Word)0)
+//TLSTM
+#define WRITE_LOCK_CLEAR ((Word)999)
+//SwissTM
+//#define WRITE_LOCK_CLEAR ((Word)0)
 
 #define READ_LOCK_SET ((Word)LSB)
 

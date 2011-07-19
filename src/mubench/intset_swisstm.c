@@ -28,7 +28,6 @@
 #include <sys/time.h>
 #include <time.h>
 
-
 #ifdef MUBENCH_WLPDSTM
 #include <atomic_ops.h>
 #include "stm.h"
@@ -81,7 +80,6 @@
 #define DEFAULT_DURATION                10000
 #define DEFAULT_INITIAL                 256
 #define DEFAULT_NB_THREADS              1
-#define DEFAULT_NB_TASKS                1
 #define DEFAULT_RANGE                   0xFFFF
 #define DEFAULT_SEED                    0
 #define DEFAULT_UPDATE                  20
@@ -111,19 +109,18 @@ static volatile int stop;
 #define TM_ARG                          tx, 
 #define TM_ARG_LAST                     , tx
 #define TM_ARG_ALONE                    tx
-#define TM_STARTUP()                    wlpdstm_global_init(nb_tasks)
+#define TM_STARTUP()                    wlpdstm_global_init(0)
 #ifdef COLLECT_STATS
 #define TM_SHUTDOWN()                   wlpdstm_print_stats()
 #else
 #define TM_SHUTDOWN()                   /* nothing */
 #endif /* COLLECT_STATS */
-
 #define TM_THREAD_ENTER()               wlpdstm_thread_init(); \
 										tx_desc *tx = wlpdstm_get_tx_desc()
-
 #define TM_THREAD_EXIT()                /* nothing */
 
 #elif defined MUBENCH_TANGER
+
 #define TM_ARGDECL_ALONE                /* nothing */
 #define TM_ARGDECL                      /* nothing */
 #define TM_ARG                          /* nothing */
@@ -607,67 +604,24 @@ void barrier_cross(barrier_t *b)
  * STRESS TEST
  * ################################################################### */
 
-typedef struct task_data {
-  unsigned task_id;
+typedef struct thread_data {
   int range;
   int update;
   unsigned long nb_add;
   unsigned long nb_remove;
   unsigned long nb_contains;
   unsigned long nb_found;
+  unsigned long nb_aborts;
   int diff;
   unsigned int seed;
   intset_t *set;
-  int val;
-  int last;
-  tx_desc *tx;
-  int stop;
-  int **matrix;
   barrier_t *barrier;
-} task_data_t;
-
-#include "threadpool.c"
-
-typedef struct thread_data {
-  int nb_tasks;
-  unsigned long nb_aborts;
-  task_data_t *tasks;
-  struct timespec *timeout;
 } thread_data_t;
 
-#define TEST_MATRIX_SIZE 4
-/*
-void task_threadpool(void *data){
-	task_data_t *d = (task_data_t *)data;
-
-	if (d->val < d->update) {
-      if (d->last < 0) {
-        // Add random value
-        d->val = (rand_r(&d->seed) % d->range) + 1;
-        if (set_add(d->set, d->val, d->task_id, d->tx)) {
-          d->diff++;
-          d->last = d->val;
-        }
-        d->nb_add++;
-      } else {
-        // Remove last value
-        if (set_remove(d->set, d->last, d->task_id, d->tx))
-          d->diff--;
-        d->nb_remove++;
-        d->last = -1;
-      }
-    } else {
-      // Look for random value
-      d->val = (rand_r(&d->seed) % d->range) + 1;
-      if (set_contains(d->set, d->val, d->task_id, d->tx))
-        d->nb_found++;
-      d->nb_contains++;
-    }
-}
-*/
-void* task_threads(void *data){
-  int val, last = -1;
-  task_data_t *d = (task_data_t *)data;
+void *test(void *data)
+{
+  int val, last = 0;
+  thread_data_t *d = (thread_data_t *)data;
 
   /* init thread */
   TM_THREAD_ENTER();
@@ -677,176 +631,41 @@ void* task_threads(void *data){
 
   unsigned long aborts = 0;
 
+  last = -1;
 #ifdef MUBENCH_WLPDSTM
   while (AO_load_full(&stop) == 0) {
 #else
   while (stop == 0) {
 #endif /* MUBENCH_WLPDSTM */
-	val = rand_r(&d->seed) % 100;
-	if (val < d->update) {
-	  if (last < 0) {
-		/* Add random value */
-		val = (rand_r(&d->seed) % d->range) + 1;
-		if (set_add(d->set, val TM_ARG_LAST)) {
-		  d->diff++;
-		  last = val;
-		}
-		d->nb_add++;
-	  } else {
-		/* Remove last value */
-		if (set_remove(d->set, last TM_ARG_LAST))
-		  d->diff--;
-		d->nb_remove++;
-		last = -1;
-	  }
-	} else {
-	  /* Look for random value */
-	  val = (rand_r(&d->seed) % d->range) + 1;
-	  if (set_contains(d->set, val TM_ARG_LAST))
-		d->nb_found++;
-	  d->nb_contains++;
-	}
-  }
-
-  //d->nb_aborts = aborts;
-
-  TM_THREAD_EXIT();
-
-  return NULL;
-}
-/*
-void task2(void *data){
-	task_data_t *d = (task_data_t *)data;
-    int i, sum = 0;
-    tx_desc *tx = d->tx;
-
-	START_ID(0);
-	for(i = 0; i < TEST_MATRIX_SIZE; i++){
-		sum = TM_SHARED_READ(d->matrix[d->task_id % TEST_MATRIX_SIZE][i]);
-	}
-	for(i = 0; i < TEST_MATRIX_SIZE; i++){
-		TM_SHARED_WRITE(d->matrix[d->task_id % TEST_MATRIX_SIZE][i], sum + 1);
-		//printf("%d ", d->matrix[d->task_id % 16][i]);
-	}
-
-	COMMIT;
-
-}
-
-void task3(void *data){
-	task_data_t *d = (task_data_t *)data;
-    int i, j, v1, v2;
-    tx_desc *tx = d->tx;
-
-	START_ID(0);
-	for(i = 0; i < TEST_MATRIX_SIZE; i++){
-		v1 = TM_SHARED_READ(d->matrix[d->task_id % TEST_MATRIX_SIZE][i]);
-	}
-
-	if(d->task_id % TEST_MATRIX_SIZE < TEST_MATRIX_SIZE - 1){
-		for(i = 0; i < TEST_MATRIX_SIZE; i++){
-			v2 = TM_SHARED_READ(d->matrix[d->task_id % TEST_MATRIX_SIZE +1][i]);
-			TM_SHARED_WRITE(d->matrix[d->task_id % TEST_MATRIX_SIZE + 1][i], v1+v2);
-			//printf("%d ", d->matrix[d->task_id % 16][i]);
-		}
-	}
-
-	COMMIT;
-
-	if(d->matrix[2][0] != d->matrix[2][1]){
-		printf("task id: %d \n", d->task_id);
-		for(i = 0; i < TEST_MATRIX_SIZE; i++){
-			for(j = 0; j < TEST_MATRIX_SIZE; j++){
-				printf("%d ", d->matrix[i][j]);
-			}
-			printf("\n");
-		}
-		printf("\n");
-	}
-
-}
-*/
-void *program_thread(void *data)
-{
-  thread_data_t *d = (thread_data_t *)data;
-
-  pthread_t *tasks;
-  pthread_attr_t attr;
-  unsigned i;
-
-  if ((tasks = (pthread_t *)malloc(d->nb_tasks * sizeof(pthread_t))) == NULL) {
-    perror("malloc");
-    exit(1);
-  }
-/*
-  int **matriz = malloc(TEST_MATRIX_SIZE * sizeof(int *));
-
-  for(i = 0; i < TEST_MATRIX_SIZE; i++){
-	matriz[i] = malloc(TEST_MATRIX_SIZE * sizeof(int));
-    for(j = 0; j < TEST_MATRIX_SIZE; j++){
-      matriz[i][j] = i+1;
+    val = rand_r(&d->seed) % 100;
+    if (val < d->update) {
+      if (last < 0) {
+        /* Add random value */
+        val = (rand_r(&d->seed) % d->range) + 1;
+        if (set_add(d->set, val TM_ARG_LAST)) {
+          d->diff++;
+          last = val;
+        }
+        d->nb_add++;
+      } else {
+        /* Remove last value */
+        if (set_remove(d->set, last TM_ARG_LAST))
+          d->diff--;
+        d->nb_remove++;
+        last = -1;
+      }
+    } else {
+      /* Look for random value */
+      val = (rand_r(&d->seed) % d->range) + 1;
+      if (set_contains(d->set, val TM_ARG_LAST))
+        d->nb_found++;
+      d->nb_contains++;
     }
   }
-*/
-  //for (i = 0; i < d->nb_tasks; i++){
-    //d->tasks[i].last = -1;
-    //d->tasks[i].stop = 0;
-    //d->tasks[i].tx = NULL;
-    //d->tasks[i].matrix = matriz;
-  //}
 
-  //threadpool tp;
+  d->nb_aborts = aborts;
 
-  //tp = create_threadpool(d->nb_tasks);
-
-  pthread_attr_init(&attr);
-  pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-
-  for (i = 0; i < d->nb_tasks; i++){
-	  if (pthread_create(&tasks[i], &attr, task_threads, (void *)(&d->tasks[i])) != 0) {
-		fprintf(stderr, "Error creating thread\n");
-		exit(1);
-	  }
-  }
-
-  pthread_attr_destroy(&attr);
-
-  //int task_id = 0;
-
-  nanosleep(d->timeout, NULL);
-
-#ifdef MUBENCH_WLPDSTM
-  while (AO_load_full(&stop) == 0) {
-#else
-  while (stop == 0) {
-#endif /* MUBENCH_WLPDSTM */
-
-	  //for (i = 0; i < d->nb_tasks; i++) {
-		  //dispatch(tp, task, &d->tasks[i], task_id++);
-	  //}
-
-  }
-
-  for (i = 0; i < d->nb_tasks; i++) {
-	  if (pthread_join(tasks[i], NULL) != 0) {
-		fprintf(stderr, "Error waiting for thread completion\n");
-		exit(1);
-	  }
-  }
-
-  //for(i = 0; i < TEST_MATRIX_SIZE; i++){
-	  //for(j = 0; j < TEST_MATRIX_SIZE; j++){
-	    //printf("%d ", matriz[i][j]);
-	  //}
-	  //printf("\n");
-  //}
-
-  /*for(i = 0; i < TEST_MATRIX_SIZE; i++)
-  	free(matriz[i]);
-  free(matriz);
-*/
-
-  //free(tasks);
+  TM_THREAD_EXIT();
 
   return NULL;
 }
@@ -859,7 +678,6 @@ int main(int argc, char **argv)
     {"duration",                  required_argument, NULL, 'd'},
     {"initial-size",              required_argument, NULL, 'i'},
     {"num-threads",               required_argument, NULL, 'n'},
-    {"num-tasks",                 required_argument, NULL, 't'},
     {"range",                     required_argument, NULL, 'r'},
     {"seed",                      required_argument, NULL, 's'},
     {"update-rate",               required_argument, NULL, 'u'},
@@ -867,7 +685,7 @@ int main(int argc, char **argv)
   };
 
   intset_t *set;
-  int i, j, c, val, size;
+  int i, c, val, size;
   unsigned long reads, updates;
   thread_data_t *data;
   pthread_t *threads;
@@ -878,14 +696,13 @@ int main(int argc, char **argv)
   int duration = DEFAULT_DURATION;
   int initial = DEFAULT_INITIAL;
   int nb_threads = DEFAULT_NB_THREADS;
-  int nb_tasks = DEFAULT_NB_TASKS;
   int range = DEFAULT_RANGE;
   int seed = DEFAULT_SEED;
   int update = DEFAULT_UPDATE;
 
   while(1) {
     i = 0;
-    c = getopt_long(argc, argv, "hd:i:n:t:r:s:u:", long_options, &i);
+    c = getopt_long(argc, argv, "hd:i:n:r:s:u:", long_options, &i);
 
     if(c == -1)
       break;
@@ -916,9 +733,7 @@ int main(int argc, char **argv)
               "  -i, --initial-size <int>\n"
               "        Number of elements to insert before test (default=" XSTR(DEFAULT_INITIAL) ")\n"
               "  -n, --num-threads <int>\n"
-              "        Number of program threads (default=" XSTR(DEFAULT_NB_THREADS) ")\n"
-              "  -t, --num-tasks <int>\n"
-              "        Number of tasks to execute in a program thread (default=" XSTR(DEFAULT_NB_THREADS) ")\n"
+              "        Number of threads (default=" XSTR(DEFAULT_NB_THREADS) ")\n"
               "  -r, --range <int>\n"
               "        Range of integer values inserted in set (default=" XSTR(DEFAULT_RANGE) ")\n"
               "  -s, --seed <int>\n"
@@ -935,9 +750,6 @@ int main(int argc, char **argv)
        break;
      case 'n':
        nb_threads = atoi(optarg);
-       break;
-     case 't':
-       nb_tasks = atoi(optarg);
        break;
      case 'r':
        range = atoi(optarg);
@@ -959,7 +771,6 @@ int main(int argc, char **argv)
   assert(duration >= 0);
   assert(initial >= 0);
   assert(nb_threads > 0);
-  assert(nb_tasks > 0);
   assert(range > 0);
   assert(update >= 0 && update <= 100);
 
@@ -971,7 +782,6 @@ int main(int argc, char **argv)
   printf("Duration     : %d\n", duration);
   printf("Initial size : %d\n", initial);
   printf("Nb threads   : %d\n", nb_threads);
-  printf("Nb tasks     : %d\n", nb_tasks);
   printf("Value range  : %d\n", range);
   printf("Seed         : %d\n", seed);
   printf("Update rate  : %d\n", update);
@@ -983,11 +793,7 @@ int main(int argc, char **argv)
     perror("malloc");
     exit(1);
   }
-  if ((threads = (pthread_t *)malloc(nb_threads * nb_tasks * sizeof(pthread_t))) == NULL) {
-    perror("malloc");
-    exit(1);
-  }
-  if ((data->tasks = (task_data_t *)malloc(nb_tasks * sizeof(task_data_t))) == NULL) {
+  if ((threads = (pthread_t *)malloc(nb_threads * sizeof(pthread_t))) == NULL) {
     perror("malloc");
     exit(1);
   }
@@ -1015,29 +821,24 @@ int main(int argc, char **argv)
   printf("Set size     : %d\n", size);
 
   /* Access set from all threads */
-  barrier_init(&barrier, nb_threads * nb_tasks + 1);
+  barrier_init(&barrier, nb_threads + 1);
   pthread_attr_init(&attr);
   pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
   for (i = 0; i < nb_threads; i++) {
     printf("Creating thread %d\n", i);
-    data[i].nb_tasks = nb_tasks;
-	data[i].timeout = &timeout;
-	for (j = 0; j < nb_tasks; j++) {
-        data[i].tasks[j].range = range;
-		data[i].tasks[j].update = update;
-		data[i].tasks[j].nb_add = 0;
-		data[i].tasks[j].nb_remove = 0;
-		data[i].tasks[j].nb_contains = 0;
-		data[i].tasks[j].nb_found = 0;
-		data[i].tasks[j].diff = 0;
-		data[i].tasks[j].seed = rand();
-		data[i].tasks[j].set = set;
-	    data[i].tasks[j].barrier = &barrier;
-
-	    if (pthread_create(&threads[i*nb_tasks + j], &attr, task_threads, (void *)(&data[i].tasks[j])) != 0) {
-		  fprintf(stderr, "Error creating thread\n");
-		  exit(1);
-		}
+    data[i].range = range;
+    data[i].update = update;
+    data[i].nb_add = 0;
+    data[i].nb_remove = 0;
+    data[i].nb_contains = 0;
+    data[i].nb_found = 0;
+    data[i].diff = 0;
+    data[i].seed = rand();
+    data[i].set = set;
+    data[i].barrier = &barrier;
+    if (pthread_create(&threads[i], &attr, test, (void *)(&data[i])) != 0) {
+      fprintf(stderr, "Error creating thread\n");
+      exit(1);
     }
   }
   pthread_attr_destroy(&attr);
@@ -1059,7 +860,7 @@ int main(int argc, char **argv)
   printf("STOPPING...\n");
 
   /* Wait for thread completion */
-  for (i = 0; i < nb_threads*nb_tasks; i++) {
+  for (i = 0; i < nb_threads; i++) {
     if (pthread_join(threads[i], NULL) != 0) {
       fprintf(stderr, "Error waiting for thread completion\n");
       exit(1);
@@ -1069,27 +870,16 @@ int main(int argc, char **argv)
   duration = (end.tv_sec * 1000 + end.tv_usec / 1000) - (start.tv_sec * 1000 + start.tv_usec / 1000);
   reads = 0;
   updates = 0;
-
   for (i = 0; i < nb_threads; i++) {
-	unsigned long nb_add = 0;
-	unsigned long nb_remove = 0;
-	unsigned long nb_contains = 0;
-	unsigned long nb_found = 0;
-    for (j = 0; j < nb_tasks; j++) {
-	  nb_add += data[i].tasks[j].nb_add;
-	  nb_remove += data[i].tasks[j].nb_remove;
-	  nb_contains += data[i].tasks[j].nb_contains;
-	  nb_found += data[i].tasks[j].nb_found;
-	  size += data[i].tasks[j].diff;
-	  size += data[i].tasks[j].diff;
- 	}
     printf("Thread %d\n", i);
-    printf("  #add        : %lu\n", nb_add);
-    printf("  #remove     : %lu\n", nb_remove);
-    printf("  #contains   : %lu\n", nb_contains);
-    printf("  #found      : %lu\n", nb_found);
-    reads += nb_contains;
-    updates += (nb_add + nb_remove);
+    printf("  #add        : %lu\n", data[i].nb_add);
+    printf("  #remove     : %lu\n", data[i].nb_remove);
+    printf("  #contains   : %lu\n", data[i].nb_contains);
+    printf("  #found      : %lu\n", data[i].nb_found);
+    reads += data[i].nb_contains;
+    updates += (data[i].nb_add + data[i].nb_remove);
+    size += data[i].diff;
+    size += data[i].diff;
   }
   printf("Set size      : %d (expected: %d)\n", set_size(set), size);
   printf("Duration      : %d (ms)\n", duration);
@@ -1100,7 +890,6 @@ int main(int argc, char **argv)
   TM_SHUTDOWN();
 
   free(threads);
-  free(data->tasks);
   free(data);
 
   return 0;
