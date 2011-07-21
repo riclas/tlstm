@@ -162,6 +162,7 @@ namespace wlpdstm {
 			WriteLogEntry ***store_vector;
 			bool **load_vector;
 			bool *aborted;
+			//TransactionState **tx_state;
 		};
 
 		////////////////////////////////
@@ -231,7 +232,7 @@ namespace wlpdstm {
 		/**
 		 * Start a transaction.
 		 */
-		void TxStart(int lex_tx_id = NO_LEXICAL_TX, bool start_tx = true, bool commit = true, int thread_id = 0);
+		void TxStart(int lex_tx_id = NO_LEXICAL_TX, bool start_tx = true, bool commit = true, unsigned thread_id = 0);
 
 		/**
 		 * Try to commit a transaction. Return 0 when commit is successful, reason for not succeeding otherwise.
@@ -477,7 +478,7 @@ namespace wlpdstm {
 		Word valid_ts;
 		
 		//TLSTM
-		TransactionState *tx_state;
+		TransactionState tx_state;
 
 		unsigned serial_index, prog_thread_id;
 		int serial;
@@ -498,7 +499,7 @@ namespace wlpdstm {
 		// local
 		uintptr_t stack_high;
 #endif /* STACK_PROTECT */
-		
+
 		// local
 /*		ReadLog prog_thread[prog_thread_id].read_log[serial_index];
 		
@@ -748,6 +749,7 @@ inline void wlpdstm::TxMixinv::InitializeProgramThreads() {
 		prog_thread[i].store_vector = (WriteLogEntry***)malloc(sizeof(WriteLogEntry**) * specdepth);
 		prog_thread[i].load_vector = (bool**)malloc(sizeof(bool*) * specdepth);
 		prog_thread[i].aborted = (bool*)malloc(sizeof(bool) * specdepth);
+		//prog_thread[i].tx_state = (TransactionState**)malloc(sizeof(TransactionState*) * specdepth);
 
 		prog_thread[i].last_commited_task = -1;
 		prog_thread[i].last_completed_task = -1;
@@ -789,7 +791,7 @@ inline void wlpdstm::TxMixinv::InitializeSignaling() {
 inline void wlpdstm::TxMixinv::ThreadInit() {
 	aborted_externally = false;
 
-	serial = -1;
+	rolled_back = false;
 
 	serial_index = 0;
 
@@ -903,17 +905,29 @@ inline wlpdstm::VersionLock *wlpdstm::TxMixinv::map_write_lock_to_read_lock(Writ
 // main algorithm start //
 //////////////////////////
 
-inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit, int thread_id) {
-
+inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit, unsigned thread_id) {
 	prog_thread_id = thread_id;
 
-	//if it's not the first task and it is not an aborted one we give it a new serial
-	if(serial == -1 || prog_thread[prog_thread_id].aborted[serial_index] == false){
+	//if it is not an aborted task we give it a new serial
+	if(!rolled_back){
 		while(prog_thread[prog_thread_id].next_task - prog_thread[prog_thread_id].last_commited_task > specdepth);
+
 		serial = fetch_and_inc_full(&prog_thread[prog_thread_id].next_task);
 		//serial = prog_thread[prog_thread_id].next_task++;
 		serial_index = serial & (specdepth - 1);
 		//printf("txstart %d\n",serial);
+
+		//create new transaction state to be shared by all tasks of a transaction
+		if(start_tx){
+			//tx_state = (TransactionState*)malloc(sizeof(TransactionState));
+			tx_state.first_serial = serial;
+			tx_state.read_only = true;
+
+			//prog_thread[prog_thread_id].last_tx_state = new_tx_state;
+		}
+
+		//this doesn't work because there can be several tasks starting transactions in one program thread
+		//tx_state = prog_thread[prog_thread_id].last_tx_state;
 	}
 
 #ifdef PERFORMANCE_COUNTING
@@ -962,6 +976,9 @@ inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit
 	// not rolled back yet
 	rolled_back = false;
 
+
+	tx_state.valid_ts = valid_ts;
+
 	//clean load vector
 	for(ReadLog::iterator iter = prog_thread[prog_thread_id].read_log[serial_index].begin();iter.hasNext();iter.next()) {
 		ReadLogEntry &entry = *iter;
@@ -974,17 +991,6 @@ inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit
 	prog_thread[prog_thread_id].fw_read_log[serial_index].clear();
 
 	write_word_log_mem_pool.clear();
-	//TLSTM
-
-	//create transaction state to be shared by all tasks of a transaction
-	if(start_tx){
-		TransactionState *new_tx_state = (TransactionState*)malloc(sizeof(TransactionState));
-		new_tx_state->first_serial = serial;
-		new_tx_state->read_only = true;
-		new_tx_state->valid_ts = valid_ts;
-
-		tx_state = new_tx_state;
-	}
 
 	try_commit = commit;
 
@@ -1009,8 +1015,15 @@ inline Word wlpdstm::TxMixinv::IncrementCommitTs() {
 }
 
 inline void wlpdstm::TxMixinv::TxCommit() {
-
+int lct = prog_thread[prog_thread_id].last_completed_task;
+printf("lct %d commit %d\n",lct, serial);
 	while(prog_thread[prog_thread_id].last_completed_task != serial-1);
+	/*	if(lct != prog_thread[prog_thread_id].last_completed_task){
+			printf("lct %d serial %d\n",prog_thread[prog_thread_id].last_completed_task,serial);
+
+		}
+		lct = prog_thread[prog_thread_id].last_completed_task;
+	}*/
 
 	RestartCause ret = TxTryCommit();
 
@@ -1031,6 +1044,7 @@ inline void wlpdstm::TxMixinv::TxCommit() {
 }
 
 inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
+	printf("trycommit %d\n",serial);
 	//if this task was told to abort in the meantime we abort and rollback
 	if(prog_thread[prog_thread_id].aborted[serial_index] == true){
 		//printf("987\n");
@@ -1041,12 +1055,12 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 	Word ts = valid_ts;
 
 	//if the transaction is read only until now, we check if it has become a writer with this task
-	if(tx_state->read_only == true)
-		tx_state->read_only = prog_thread[prog_thread_id].write_log[serial_index].empty();
+	if(tx_state.read_only == true)
+		tx_state.read_only = prog_thread[prog_thread_id].write_log[serial_index].empty();
 
 	//TLSTM
 	//Check valid_ts of task, validate or rollback
-	if(tx_state->valid_ts > ts){
+	if(tx_state.valid_ts > ts){
 		if(!ValidateCommit(serial)){
 			//printf("1007\n");
 			Rollback(serial);
@@ -1054,8 +1068,8 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 			return RESTART_VALIDATION;
 		}
 	} else {
-		if(tx_state->valid_ts < ts){
-			for(int s = tx_state->first_serial; s <= serial; s++){
+		if(tx_state.valid_ts < ts){
+			for(int s = tx_state.first_serial; s <= serial; s++){
 				if(!ValidateCommit(s)){
 					//printf("1016\n");
 					Rollback(s);
@@ -1063,15 +1077,15 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 					return RESTART_VALIDATION;
 				}
 			}
-			tx_state->valid_ts = ts;
+			tx_state.valid_ts = ts;
 		}
 	}
 
 	if(try_commit){
 		//commit a write transaction
-		if(!tx_state->read_only) {
+		if(!tx_state.read_only) {
 			// first lock all read locks
-			for(int s = tx_state->first_serial; s <= serial; s++){
+			for(int s = tx_state.first_serial; s <= serial; s++){
 				for(WriteLog::iterator iter = prog_thread[prog_thread_id].write_log[s & (specdepth - 1)].begin();iter.hasNext();iter.next()) {
 					WriteLogEntry &entry = *iter;
 					*(entry.read_lock) = READ_LOCK_SET;
@@ -1118,15 +1132,15 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 				return RESTART_VALIDATION;
 			}
 	*/
-			if(ts > tx_state->valid_ts+1){
-				for(int s = tx_state->first_serial; s <= serial; s++){
+			if(ts > tx_state.valid_ts+1){
+				for(int s = tx_state.first_serial; s <= serial; s++){
 					if(!ValidateCommit(s)){
 						ReleaseReadLocks();
 						stats.IncrementStatistics(Statistics::ABORT_COMMIT_VALIDATE);
 						IncrementReadAbortStats();
 
 						//printf("1074\n");
-						Rollback(tx_state->first_serial);
+						Rollback(tx_state.first_serial);
 
 						return RESTART_VALIDATION;
 					}
@@ -1136,7 +1150,7 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 			VersionLock commitVersion = get_version_lock(ts);
 
 			// now update all written values
-			for(int s = tx_state->first_serial; s <= serial; s++){
+			for(int s = tx_state.first_serial; s <= serial; s++){
 				for(WriteLog::iterator iter = prog_thread[prog_thread_id].write_log[s & (specdepth - 1)].begin();iter.hasNext();iter.next()) {
 					WriteLogEntry &entry = *iter;
 
@@ -1168,7 +1182,7 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 		} else {
 			stats.IncrementStatistics(Statistics::COMMIT_READ_ONLY);
 		}
-		free(tx_state);
+		//free(tx_state);
 		prog_thread[prog_thread_id].last_commited_task = serial;
 	}
 
@@ -1207,6 +1221,7 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 	}
 #endif /* ADAPTIVE_LOCKING */
 
+//printf("commited %d\n",serial);
 	return NO_RESTART;
 }
 
@@ -1390,7 +1405,7 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 
 			return log_entry;
 		}
-		
+
 		// someone locked it in the meantime
 		// return last element back to the log
 		prog_thread[prog_thread_id].write_log[serial_index].delete_last();

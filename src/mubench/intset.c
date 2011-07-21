@@ -43,9 +43,9 @@
 
 #ifdef MUBENCH_WLPDSTM
 #define START                           BEGIN_TRANSACTION_DESC
-#define START_ID(ID)                    BEGIN_TRANSACTION_DESC_ID(ID)
+#define START_ID(ID,start,commit,ptid)                    BEGIN_TRANSACTION_DESC_ID(ID,start,commit,ptid)
 #define START_RO                        START
-#define START_RO_ID(ID)                 START_ID(ID)
+#define START_RO_ID(ID,start,commit,ptid)                 START_ID(ID,start,commit,ptid)
 #define LOAD(addr)                      wlpdstm_read_word_desc(tx, (Word *)(addr))
 #define STORE(addr, value)              wlpdstm_write_word_desc(tx, (Word *)addr, (Word)value)
 #define COMMIT                          END_TRANSACTION
@@ -195,11 +195,11 @@ int set_add_seq(intset_t *set, intptr_t val) {
 }
 
 #ifdef MUBENCH_WLPDSTM
-int set_add(intset_t *set, intptr_t val, tx_desc *tx)
+int set_add(intset_t *set, intptr_t val, unsigned start, unsigned commit, unsigned ptid, tx_desc *tx)
 {
 	int res = 0;
 
-	START_ID(0);
+	START_ID(0, start, commit, ptid);
 	res = !TMrbtree_insert(tx, set, val, val);
 	COMMIT;
 
@@ -219,11 +219,11 @@ int set_add(intset_t *set, intptr_t val)
 #endif /* MUBENCH_TANGER || MUBENCH_SEQUENTIAL */
 
 #ifdef MUBENCH_WLPDSTM
-int set_remove(intset_t *set, intptr_t val, tx_desc *tx)
+int set_remove(intset_t *set, intptr_t val, unsigned start, unsigned commit, unsigned ptid, tx_desc *tx)
 {
 	int res = 0;
 
-    START_ID(1);
+    START_ID(1, start, commit, ptid);
     res = TMrbtree_delete(tx, set, val);
     COMMIT;
 
@@ -243,11 +243,11 @@ int set_remove(intset_t *set, intptr_t val)
 #endif /* MUBENCH_TANGER || MUBENCH_SEQUENTIAL */
 
 #ifdef MUBENCH_WLPDSTM
-int set_contains(intset_t *set, intptr_t val, tx_desc *tx)
+int set_contains(intset_t *set, intptr_t val, unsigned start, unsigned commit, unsigned ptid, tx_desc *tx)
 {
 	int res = 0;
 
-    START_RO_ID(2);
+    START_RO_ID(2, start, commit, ptid);
     res = TMrbtree_contains(tx, set, val);
     COMMIT;
 
@@ -608,7 +608,7 @@ void barrier_cross(barrier_t *b)
  * ################################################################### */
 
 typedef struct task_data {
-  unsigned task_id;
+  unsigned ptid;
   int range;
   int update;
   unsigned long nb_add;
@@ -618,24 +618,14 @@ typedef struct task_data {
   int diff;
   unsigned int seed;
   intset_t *set;
-  int val;
-  int last;
   tx_desc *tx;
-  int stop;
-  int **matrix;
+  //int **matrix;
   barrier_t *barrier;
 } task_data_t;
 
-#include "threadpool.c"
+//#include "threadpool.c"
 
-typedef struct thread_data {
-  int nb_tasks;
-  unsigned long nb_aborts;
-  task_data_t *tasks;
-  struct timespec *timeout;
-} thread_data_t;
-
-#define TEST_MATRIX_SIZE 4
+//#define TEST_MATRIX_SIZE 4
 /*
 void task_threadpool(void *data){
 	task_data_t *d = (task_data_t *)data;
@@ -675,7 +665,9 @@ void* task_threads(void *data){
   /* Wait on barrier */
   barrier_cross(d->barrier);
 
-  unsigned long aborts = 0;
+  //unsigned long aborts = 0;
+  unsigned start = 1;
+  unsigned commit = 1;
 
 #ifdef MUBENCH_WLPDSTM
   while (AO_load_full(&stop) == 0) {
@@ -687,14 +679,14 @@ void* task_threads(void *data){
 	  if (last < 0) {
 		/* Add random value */
 		val = (rand_r(&d->seed) % d->range) + 1;
-		if (set_add(d->set, val TM_ARG_LAST)) {
+		if (set_add(d->set, val, start, commit, d->ptid TM_ARG_LAST)) {
 		  d->diff++;
 		  last = val;
 		}
 		d->nb_add++;
 	  } else {
 		/* Remove last value */
-		if (set_remove(d->set, last TM_ARG_LAST))
+		if (set_remove(d->set, last, start, commit, d->ptid TM_ARG_LAST))
 		  d->diff--;
 		d->nb_remove++;
 		last = -1;
@@ -702,7 +694,7 @@ void* task_threads(void *data){
 	} else {
 	  /* Look for random value */
 	  val = (rand_r(&d->seed) % d->range) + 1;
-	  if (set_contains(d->set, val TM_ARG_LAST))
+	  if (set_contains(d->set, val, start, commit, d->ptid TM_ARG_LAST))
 		d->nb_found++;
 	  d->nb_contains++;
 	}
@@ -765,7 +757,7 @@ void task3(void *data){
 	}
 
 }
-*/
+
 void *program_thread(void *data)
 {
   thread_data_t *d = (thread_data_t *)data;
@@ -778,7 +770,7 @@ void *program_thread(void *data)
     perror("malloc");
     exit(1);
   }
-/*
+
   int **matriz = malloc(TEST_MATRIX_SIZE * sizeof(int *));
 
   for(i = 0; i < TEST_MATRIX_SIZE; i++){
@@ -787,7 +779,7 @@ void *program_thread(void *data)
       matriz[i][j] = i+1;
     }
   }
-*/
+
   //for (i = 0; i < d->nb_tasks; i++){
     //d->tasks[i].last = -1;
     //d->tasks[i].stop = 0;
@@ -819,7 +811,7 @@ void *program_thread(void *data)
   while (AO_load_full(&stop) == 0) {
 #else
   while (stop == 0) {
-#endif /* MUBENCH_WLPDSTM */
+#endif // MUBENCH_WLPDSTM
 
 	  //for (i = 0; i < d->nb_tasks; i++) {
 		  //dispatch(tp, task, &d->tasks[i], task_id++);
@@ -841,16 +833,16 @@ void *program_thread(void *data)
 	  //printf("\n");
   //}
 
-  /*for(i = 0; i < TEST_MATRIX_SIZE; i++)
-  	free(matriz[i]);
+  for(i = 0; i < TEST_MATRIX_SIZE; i++)
+  free(matriz[i]);
   free(matriz);
-*/
+
 
   //free(tasks);
 
   return NULL;
 }
-
+*/
 int main(int argc, char **argv)
 {
   struct option long_options[] = {
@@ -869,7 +861,7 @@ int main(int argc, char **argv)
   intset_t *set;
   int i, j, c, val, size;
   unsigned long reads, updates;
-  thread_data_t *data;
+  task_data_t *data;
   pthread_t *threads;
   pthread_attr_t attr;
   barrier_t barrier;
@@ -979,15 +971,11 @@ int main(int argc, char **argv)
   timeout.tv_sec = duration / 1000;
   timeout.tv_nsec = (duration % 1000) * 1000000;
 
-  if ((data = (thread_data_t *)malloc(nb_threads * sizeof(thread_data_t))) == NULL) {
+  if ((data = (task_data_t *)malloc(nb_threads * nb_tasks * sizeof(task_data_t))) == NULL) {
     perror("malloc");
     exit(1);
   }
   if ((threads = (pthread_t *)malloc(nb_threads * nb_tasks * sizeof(pthread_t))) == NULL) {
-    perror("malloc");
-    exit(1);
-  }
-  if ((data->tasks = (task_data_t *)malloc(nb_tasks * sizeof(task_data_t))) == NULL) {
     perror("malloc");
     exit(1);
   }
@@ -1018,27 +1006,24 @@ int main(int argc, char **argv)
   barrier_init(&barrier, nb_threads * nb_tasks + 1);
   pthread_attr_init(&attr);
   pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-  for (i = 0; i < nb_threads; i++) {
-    printf("Creating thread %d\n", i);
-    data[i].nb_tasks = nb_tasks;
-	data[i].timeout = &timeout;
-	for (j = 0; j < nb_tasks; j++) {
-        data[i].tasks[j].range = range;
-		data[i].tasks[j].update = update;
-		data[i].tasks[j].nb_add = 0;
-		data[i].tasks[j].nb_remove = 0;
-		data[i].tasks[j].nb_contains = 0;
-		data[i].tasks[j].nb_found = 0;
-		data[i].tasks[j].diff = 0;
-		data[i].tasks[j].seed = rand();
-		data[i].tasks[j].set = set;
-	    data[i].tasks[j].barrier = &barrier;
+  for (i = 0; i < nb_threads * nb_tasks; i++) {
+	printf("Creating task %d of program thread %d \n", i % nb_tasks, i / nb_tasks);
+	data[i].range = range;
+	data[i].update = update;
+	data[i].nb_add = 0;
+	data[i].nb_remove = 0;
+	data[i].nb_contains = 0;
+	data[i].nb_found = 0;
+	data[i].diff = 0;
+	data[i].seed = rand();
+	data[i].set = set;
+	data[i].barrier = &barrier;
+	data[i].ptid = i / nb_tasks;
 
-	    if (pthread_create(&threads[i*nb_tasks + j], &attr, task_threads, (void *)(&data[i].tasks[j])) != 0) {
-		  fprintf(stderr, "Error creating thread\n");
-		  exit(1);
-		}
-    }
+	if (pthread_create(&threads[i], &attr, task_threads, (void *)(&data[i])) != 0) {
+	  fprintf(stderr, "Error creating thread\n");
+	  exit(1);
+	}
   }
   pthread_attr_destroy(&attr);
 
@@ -1076,12 +1061,12 @@ int main(int argc, char **argv)
 	unsigned long nb_contains = 0;
 	unsigned long nb_found = 0;
     for (j = 0; j < nb_tasks; j++) {
-	  nb_add += data[i].tasks[j].nb_add;
-	  nb_remove += data[i].tasks[j].nb_remove;
-	  nb_contains += data[i].tasks[j].nb_contains;
-	  nb_found += data[i].tasks[j].nb_found;
-	  size += data[i].tasks[j].diff;
-	  size += data[i].tasks[j].diff;
+	  nb_add += data[i*nb_tasks + j].nb_add;
+	  nb_remove += data[i*nb_tasks + j].nb_remove;
+	  nb_contains += data[i*nb_tasks + j].nb_contains;
+	  nb_found += data[i*nb_tasks + j].nb_found;
+	  size += data[i*nb_tasks + j].diff;
+	  size += data[i*nb_tasks + j].diff;
  	}
     printf("Thread %d\n", i);
     printf("  #add        : %lu\n", nb_add);
@@ -1100,7 +1085,6 @@ int main(int argc, char **argv)
   TM_SHUTDOWN();
 
   free(threads);
-  free(data->tasks);
   free(data);
 
   return 0;

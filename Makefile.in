@@ -180,7 +180,7 @@ CPPFLAGS_gp      =  -ggdb -pg -O3
 
 ifeq ($(PROFILE), )
 	ifeq ($(COMPILER), gnu)
-		PROFILE = debug
+		PROFILE = fast
 	endif
 
 	ifeq ($(COMPILER), intel)
