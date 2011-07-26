@@ -20,7 +20,7 @@ Word wlpdstm::TxMixinv::thread_count;
 
 int wlpdstm::TxMixinv::specdepth;
 
-wlpdstm::TxMixinv::ProgramThread wlpdstm::TxMixinv::prog_thread[2];
+wlpdstm::TxMixinv::ProgramThread wlpdstm::TxMixinv::prog_thread[MAX_THREADS];
 
 //bool wlpdstm::TxMixinv::sigsegv_caught;
 

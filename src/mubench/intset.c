@@ -618,14 +618,14 @@ typedef struct task_data {
   int diff;
   unsigned int seed;
   intset_t *set;
-  tx_desc *tx;
-  //int **matrix;
+  //tx_desc *tx;
+  int **matrix;
   barrier_t *barrier;
 } task_data_t;
 
 //#include "threadpool.c"
 
-//#define TEST_MATRIX_SIZE 4
+#define TEST_MATRIX_SIZE 4
 /*
 void task_threadpool(void *data){
 	task_data_t *d = (task_data_t *)data;
@@ -662,12 +662,12 @@ void* task_threads(void *data){
   /* init thread */
   TM_THREAD_ENTER();
 
-  /* Wait on barrier */
-  barrier_cross(d->barrier);
-
   //unsigned long aborts = 0;
   unsigned start = 1;
   unsigned commit = 1;
+
+  /* Wait on barrier */
+  barrier_cross(d->barrier);
 
 #ifdef MUBENCH_WLPDSTM
   while (AO_load_full(&stop) == 0) {
@@ -724,40 +724,61 @@ void task2(void *data){
 	COMMIT;
 
 }
+*/
 
-void task3(void *data){
+/*
+ * This test makes each task add all values of a line of a matrix
+ * with the corresponding value from the next line
+ * If there are different values in one of the lines
+ * it means there is a bug somewhere in the TM
+ */
+
+void* task_matrix(void *data){
 	task_data_t *d = (task_data_t *)data;
-    int i, j, v1, v2;
-    tx_desc *tx = d->tx;
+    int i, j, v1, v2, end = 0, counter = 0;
 
-	START_ID(0);
-	for(i = 0; i < TEST_MATRIX_SIZE; i++){
-		v1 = TM_SHARED_READ(d->matrix[d->task_id % TEST_MATRIX_SIZE][i]);
-	}
+    TM_THREAD_ENTER();
 
-	if(d->task_id % TEST_MATRIX_SIZE < TEST_MATRIX_SIZE - 1){
+    barrier_cross(d->barrier);
+
+    while (AO_load_full(&stop) == 0 && !end) {
+
+		START_ID(0,1,1,0);
+
 		for(i = 0; i < TEST_MATRIX_SIZE; i++){
-			v2 = TM_SHARED_READ(d->matrix[d->task_id % TEST_MATRIX_SIZE +1][i]);
-			TM_SHARED_WRITE(d->matrix[d->task_id % TEST_MATRIX_SIZE + 1][i], v1+v2);
-			//printf("%d ", d->matrix[d->task_id % 16][i]);
+			v1 = TM_SHARED_READ(d->matrix[counter % TEST_MATRIX_SIZE][i]);
 		}
-	}
 
-	COMMIT;
+		if(counter % TEST_MATRIX_SIZE < TEST_MATRIX_SIZE - 1){
+			for(i = 0; i < TEST_MATRIX_SIZE; i++){
+				v2 = TM_SHARED_READ(d->matrix[counter % TEST_MATRIX_SIZE +1][i]);
+				TM_SHARED_WRITE(d->matrix[counter % TEST_MATRIX_SIZE + 1][i], v1+v2);
+			}
+		}
 
-	if(d->matrix[2][0] != d->matrix[2][1]){
-		printf("task id: %d \n", d->task_id);
-		for(i = 0; i < TEST_MATRIX_SIZE; i++){
-			for(j = 0; j < TEST_MATRIX_SIZE; j++){
-				printf("%d ", d->matrix[i][j]);
+		COMMIT;
+
+		//check for bug
+		if(d->matrix[1][0] != d->matrix[1][1]){
+			end = 1;
+			printf("counter: %d \n", counter);
+			for(i = 0; i < TEST_MATRIX_SIZE; i++){
+				for(j = 0; j < TEST_MATRIX_SIZE; j++){
+					printf("%d ", d->matrix[i][j]);
+				}
+				printf("\n");
 			}
 			printf("\n");
 		}
-		printf("\n");
-	}
 
+		counter++;
+    }
+
+    TM_THREAD_EXIT();
+
+	return NULL;
 }
-
+/*
 void *program_thread(void *data)
 {
   thread_data_t *d = (thread_data_t *)data;
@@ -874,6 +895,14 @@ int main(int argc, char **argv)
   int range = DEFAULT_RANGE;
   int seed = DEFAULT_SEED;
   int update = DEFAULT_UPDATE;
+  int **matriz = malloc(TEST_MATRIX_SIZE * sizeof(int *));
+
+  for(i = 0; i < TEST_MATRIX_SIZE; i++){
+    matriz[i] = malloc(TEST_MATRIX_SIZE * sizeof(int));
+    for(j = 0; j < TEST_MATRIX_SIZE; j++){
+	  matriz[i][j] = i+1;
+    }
+  }
 
   while(1) {
     i = 0;
@@ -1019,8 +1048,9 @@ int main(int argc, char **argv)
 	data[i].set = set;
 	data[i].barrier = &barrier;
 	data[i].ptid = i / nb_tasks;
+	data[i].matrix = matriz;
 
-	if (pthread_create(&threads[i], &attr, task_threads, (void *)(&data[i])) != 0) {
+	if (pthread_create(&threads[i], &attr, task3, (void *)(&data[i])) != 0) {
 	  fprintf(stderr, "Error creating thread\n");
 	  exit(1);
 	}
@@ -1049,6 +1079,14 @@ int main(int argc, char **argv)
       fprintf(stderr, "Error waiting for thread completion\n");
       exit(1);
     }
+  }
+
+  //print the matrix after the test is over
+  for(i = 0; i < TEST_MATRIX_SIZE; i++){
+  	  for(j = 0; j < TEST_MATRIX_SIZE; j++){
+  	    printf("%d ", matriz[i][j]);
+  	  }
+  	  printf("\n");
   }
 
   duration = (end.tv_sec * 1000 + end.tv_usec / 1000) - (start.tv_sec * 1000 + start.tv_usec / 1000);
