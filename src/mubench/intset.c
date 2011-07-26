@@ -1050,7 +1050,7 @@ int main(int argc, char **argv)
 	data[i].ptid = i / nb_tasks;
 	data[i].matrix = matriz;
 
-	if (pthread_create(&threads[i], &attr, task3, (void *)(&data[i])) != 0) {
+	if (pthread_create(&threads[i], &attr, task_matrix, (void *)(&data[i])) != 0) {
 	  fprintf(stderr, "Error creating thread\n");
 	  exit(1);
 	}
