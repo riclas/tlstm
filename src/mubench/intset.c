@@ -42,10 +42,12 @@
 #endif
 
 #ifdef MUBENCH_WLPDSTM
+#define fetch_and_inc_full(addr) (AO_fetch_and_add1_full((volatile AO_t *)(addr)))
+
 #define START                           BEGIN_TRANSACTION_DESC
-#define START_ID(ID,start,commit,ptid)                    BEGIN_TRANSACTION_DESC_ID(ID,start,commit,ptid)
+#define START_ID(ID,start,commit,ptid,taskid)                    BEGIN_TRANSACTION_DESC_ID(ID,start,commit,ptid,taskid)
 #define START_RO                        START
-#define START_RO_ID(ID,start,commit,ptid)                 START_ID(ID,start,commit,ptid)
+#define START_RO_ID(ID,start,commit,ptid,taskid)                 START_ID(ID,start,commit,ptid,taskid)
 #define LOAD(addr)                      wlpdstm_read_word_desc(tx, (Word *)(addr))
 #define STORE(addr, value)              wlpdstm_write_word_desc(tx, (Word *)addr, (Word)value)
 #define COMMIT                          END_TRANSACTION
@@ -195,11 +197,11 @@ int set_add_seq(intset_t *set, intptr_t val) {
 }
 
 #ifdef MUBENCH_WLPDSTM
-int set_add(intset_t *set, intptr_t val, unsigned start, unsigned commit, unsigned ptid, tx_desc *tx)
+int set_add(intset_t *set, intptr_t val, unsigned start, unsigned commit, unsigned ptid, unsigned task_id, tx_desc *tx)
 {
 	int res = 0;
 
-	START_ID(0, start, commit, ptid);
+	START_ID(0, start, commit, ptid, task_id);
 	res = !TMrbtree_insert(tx, set, val, val);
 	COMMIT;
 
@@ -219,11 +221,11 @@ int set_add(intset_t *set, intptr_t val)
 #endif /* MUBENCH_TANGER || MUBENCH_SEQUENTIAL */
 
 #ifdef MUBENCH_WLPDSTM
-int set_remove(intset_t *set, intptr_t val, unsigned start, unsigned commit, unsigned ptid, tx_desc *tx)
+int set_remove(intset_t *set, intptr_t val, unsigned start, unsigned commit, unsigned ptid, unsigned task_id, tx_desc *tx)
 {
 	int res = 0;
 
-    START_ID(1, start, commit, ptid);
+    START_ID(1, start, commit, ptid, task_id);
     res = TMrbtree_delete(tx, set, val);
     COMMIT;
 
@@ -243,11 +245,11 @@ int set_remove(intset_t *set, intptr_t val)
 #endif /* MUBENCH_TANGER || MUBENCH_SEQUENTIAL */
 
 #ifdef MUBENCH_WLPDSTM
-int set_contains(intset_t *set, intptr_t val, unsigned start, unsigned commit, unsigned ptid, tx_desc *tx)
+int set_contains(intset_t *set, intptr_t val, unsigned start, unsigned commit, unsigned ptid, unsigned task_id, tx_desc *tx)
 {
 	int res = 0;
 
-    START_RO_ID(2, start, commit, ptid);
+    START_RO_ID(2, start, commit, ptid, task_id);
     res = TMrbtree_contains(tx, set, val);
     COMMIT;
 
@@ -621,6 +623,7 @@ typedef struct task_data {
   //tx_desc *tx;
   int **matrix;
   barrier_t *barrier;
+  int *next_serial;
 } task_data_t;
 
 //#include "threadpool.c"
@@ -656,7 +659,7 @@ void task_threadpool(void *data){
 }
 */
 void* task_threads(void *data){
-  int val, last = -1;
+  int serial, val, last = -1;
   task_data_t *d = (task_data_t *)data;
 
   /* init thread */
@@ -674,19 +677,22 @@ void* task_threads(void *data){
 #else
   while (stop == 0) {
 #endif /* MUBENCH_WLPDSTM */
+
+  	serial = fetch_and_inc_full(d->next_serial);
+
 	val = rand_r(&d->seed) % 100;
 	if (val < d->update) {
 	  if (last < 0) {
 		/* Add random value */
 		val = (rand_r(&d->seed) % d->range) + 1;
-		if (set_add(d->set, val, start, commit, d->ptid TM_ARG_LAST)) {
+		if (set_add(d->set, val, start, commit, d->ptid, serial TM_ARG_LAST)) {
 		  d->diff++;
 		  last = val;
 		}
 		d->nb_add++;
 	  } else {
 		/* Remove last value */
-		if (set_remove(d->set, last, start, commit, d->ptid TM_ARG_LAST))
+		if (set_remove(d->set, last, start, commit, d->ptid, serial TM_ARG_LAST))
 		  d->diff--;
 		d->nb_remove++;
 		last = -1;
@@ -694,7 +700,7 @@ void* task_threads(void *data){
 	} else {
 	  /* Look for random value */
 	  val = (rand_r(&d->seed) % d->range) + 1;
-	  if (set_contains(d->set, val, start, commit, d->ptid TM_ARG_LAST))
+	  if (set_contains(d->set, val, start, commit, d->ptid, serial TM_ARG_LAST))
 		d->nb_found++;
 	  d->nb_contains++;
 	}
@@ -735,7 +741,7 @@ void task2(void *data){
 
 void* task_matrix(void *data){
 	task_data_t *d = (task_data_t *)data;
-    int i, j, v1, v2, end = 0, counter = 0;
+    int i, serial, v1, v2, end = 0;
 
     TM_THREAD_ENTER();
 
@@ -743,16 +749,18 @@ void* task_matrix(void *data){
 
     while (AO_load_full(&stop) == 0 && !end) {
 
-		START_ID(0,1,1,0);
+    	serial = fetch_and_inc_full(d->next_serial);
+
+		START_ID(0,1,1,0,serial);
 
 		for(i = 0; i < TEST_MATRIX_SIZE; i++){
-			v1 = TM_SHARED_READ(d->matrix[counter % TEST_MATRIX_SIZE][i]);
+			v1 = TM_SHARED_READ(d->matrix[serial % TEST_MATRIX_SIZE][i]);
 		}
 
-		if(counter % TEST_MATRIX_SIZE < TEST_MATRIX_SIZE - 1){
+		if(serial % TEST_MATRIX_SIZE < TEST_MATRIX_SIZE - 1){
 			for(i = 0; i < TEST_MATRIX_SIZE; i++){
-				v2 = TM_SHARED_READ(d->matrix[counter % TEST_MATRIX_SIZE +1][i]);
-				TM_SHARED_WRITE(d->matrix[counter % TEST_MATRIX_SIZE + 1][i], v1+v2);
+				v2 = TM_SHARED_READ(d->matrix[serial % TEST_MATRIX_SIZE +1][i]);
+				TM_SHARED_WRITE(d->matrix[serial % TEST_MATRIX_SIZE + 1][i], v1+v2);
 			}
 		}
 
@@ -761,17 +769,15 @@ void* task_matrix(void *data){
 		//check for bug
 		if(d->matrix[1][0] != d->matrix[1][1]){
 			end = 1;
-			printf("counter: %d \n", counter);
+			/*printf("counter: %d \n", counter);
 			for(i = 0; i < TEST_MATRIX_SIZE; i++){
 				for(j = 0; j < TEST_MATRIX_SIZE; j++){
 					printf("%d ", d->matrix[i][j]);
 				}
 				printf("\n");
 			}
-			printf("\n");
+			printf("\n");*/
 		}
-
-		counter++;
     }
 
     TM_THREAD_EXIT();
@@ -1035,25 +1041,31 @@ int main(int argc, char **argv)
   barrier_init(&barrier, nb_threads * nb_tasks + 1);
   pthread_attr_init(&attr);
   pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
-  for (i = 0; i < nb_threads * nb_tasks; i++) {
-	printf("Creating task %d of program thread %d \n", i % nb_tasks, i / nb_tasks);
-	data[i].range = range;
-	data[i].update = update;
-	data[i].nb_add = 0;
-	data[i].nb_remove = 0;
-	data[i].nb_contains = 0;
-	data[i].nb_found = 0;
-	data[i].diff = 0;
-	data[i].seed = rand();
-	data[i].set = set;
-	data[i].barrier = &barrier;
-	data[i].ptid = i / nb_tasks;
-	data[i].matrix = matriz;
+  for (i = 0; i < nb_threads; i++) {
+	  for(j = 0; j < nb_tasks; j++){
+		int index = i*nb_tasks + j;
+		int next_serial = 0;
 
-	if (pthread_create(&threads[i], &attr, task_matrix, (void *)(&data[i])) != 0) {
-	  fprintf(stderr, "Error creating thread\n");
-	  exit(1);
-	}
+		printf("Creating task %d of program thread %d \n", j, i);
+		data[index].range = range;
+		data[index].update = update;
+		data[index].nb_add = 0;
+		data[index].nb_remove = 0;
+		data[index].nb_contains = 0;
+		data[index].nb_found = 0;
+		data[index].diff = 0;
+		data[index].seed = rand();
+		data[index].set = set;
+		data[index].barrier = &barrier;
+		data[index].ptid = i;
+		data[index].matrix = matriz;
+		data[index].next_serial = &next_serial;
+
+		if (pthread_create(&threads[index], &attr, task_threads, (void *)(&data[index])) != 0) {
+		  fprintf(stderr, "Error creating thread\n");
+		  exit(1);
+		}
+	  }
   }
   pthread_attr_destroy(&attr);
 
