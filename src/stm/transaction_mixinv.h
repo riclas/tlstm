@@ -156,8 +156,8 @@ namespace wlpdstm {
 			WriteLog *write_log;
 			ReadLog *fw_read_log;
 			WriteLogEntry ***store_vector;
-			bool **load_vector;
-			bool *aborted;
+			Word **load_vector;
+			Word *aborted;
 			//TransactionState **tx_state;
 		};
 
@@ -335,7 +335,7 @@ namespace wlpdstm {
 
 		int PreviousActiveWriter(unsigned address_index);
 
-		void SetLoadVector(unsigned address_index, unsigned s_index, bool value);
+		void SetLoadVector(unsigned address_index, unsigned s_index, Word value);
 
 		void SetStoreVector(unsigned address_index, unsigned s_index, WriteLogEntry *entry);
 
@@ -655,8 +655,9 @@ inline void wlpdstm::TxMixinv::InitializeProgramThreads() {
 		prog_thread[i].write_log = new WriteLog[specdepth];
 		prog_thread[i].fw_read_log = new ReadLog[specdepth];
 		prog_thread[i].store_vector = (WriteLogEntry***)malloc(sizeof(WriteLogEntry**) * specdepth);
-		prog_thread[i].load_vector = (bool**)malloc(sizeof(bool*) * specdepth);
-		prog_thread[i].aborted = (bool*)malloc(sizeof(bool) * specdepth);
+		prog_thread[i].load_vector = (Word**)malloc(sizeof(Word*) * specdepth);
+
+		prog_thread[i].aborted = (Word*)calloc(specdepth, sizeof(Word));
 		//prog_thread[i].tx_state = (TransactionState**)malloc(sizeof(TransactionState*) * specdepth);
 
 		prog_thread[i].last_commited_task = -1;
@@ -665,9 +666,9 @@ inline void wlpdstm::TxMixinv::InitializeProgramThreads() {
 
 		for(int j=0; j < specdepth; j++){
 			prog_thread[i].store_vector[j] = (WriteLogEntry**)calloc(VERSION_LOCK_TABLE_SIZE, sizeof(WriteLogEntry*));
-			prog_thread[i].load_vector[j] = (bool*)calloc(VERSION_LOCK_TABLE_SIZE, sizeof(bool));
+			prog_thread[i].load_vector[j] = (Word*)calloc(VERSION_LOCK_TABLE_SIZE, sizeof(Word));
 			//prog_thread[i].load_vector[j] = (unsigned*)malloc(VERSION_LOCK_TABLE_SIZE * sizeof(unsigned));
-			prog_thread[i].aborted[j] = false;
+			//prog_thread[i].aborted[j] = 0;
 			//for(int k=0; k < VERSION_LOCK_TABLE_SIZE; k++){
 				//prog_thread[i].load_vector[j][k] = 0;
 				//prog_thread[i].store_vector[k][j] = NULL;
@@ -883,7 +884,7 @@ inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit
 	for(ReadLog::iterator iter = prog_thread[prog_thread_id].read_log[serial_index].begin();iter.hasNext();iter.next()) {
 		ReadLogEntry &entry = *iter;
 
-		SetLoadVector(entry.address_index, serial_index, false);
+		SetLoadVector(entry.address_index, serial_index, 0);
 	}
 
 	//cleanup readlogs
@@ -894,7 +895,7 @@ inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit
 
 	try_commit = commit;
 
-	prog_thread[prog_thread_id].aborted[serial_index] = false;
+	prog_thread[prog_thread_id].aborted[serial_index] = 0;
 
 #ifdef SIGNALING
 	ClearSignals();
@@ -941,7 +942,7 @@ inline void wlpdstm::TxMixinv::TxCommit() {
 inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 	//printf("trycommit %d\n",serial);
 	//if this task was told to abort in the meantime we abort and rollback
-	if(prog_thread[prog_thread_id].aborted[serial_index] == true){
+	if(prog_thread[prog_thread_id].aborted[serial_index] == 1){
 		//printf("987\n");
 		Rollback();
 		return RESTART_EXTERNAL;
@@ -1131,8 +1132,8 @@ inline void wlpdstm::TxMixinv::Rollback(unsigned start_serial) {
 	for(int s = start_serial; s < prog_thread[prog_thread_id].next_task; s++){
 		//printf("rollback %d\n",s);
 		//prog_thread[prog_thread_id].aborted[s & (specdepth - 1)] = true;
-		//atomic_store_release(&prog_thread[prog_thread_id].aborted[s % specdepth], true);
-		atomic_cas_full(&prog_thread[prog_thread_id].aborted[s & (specdepth - 1)], false, true);
+		atomic_store_release(&prog_thread[prog_thread_id].aborted[s % specdepth], 1);
+		//atomic_cas_full(&prog_thread[prog_thread_id].aborted[s & (specdepth - 1)], false, true);
 
 	}
 //printf("rollback %d s-index %d\n", serial, serial_index);
@@ -1200,7 +1201,7 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 	unsigned address_index = map_address_to_index(address);
 
 	//TLSTM
-	WriteLogEntry* log_entry = (WriteLogEntry*)atomic_load_acquire(&prog_thread[prog_thread_id].store_vector[serial_index][address_index]);
+	WriteLogEntry* log_entry = prog_thread[prog_thread_id].store_vector[serial_index][address_index];
 
 	//If locked by my program thread and furthermore by my task, return quickly
 	if(/*lock_value == prog_thread_id && */log_entry != NULL) {
@@ -1405,7 +1406,7 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 
 	//if it's a speculative task we mark the task's load vector for the read address
 	if(serial > prog_thread[prog_thread_id].last_completed_task + 1)
-		SetLoadVector(address_index, serial_index, true);
+		SetLoadVector(address_index, serial_index, 1);
 /*
 	WriteLogEntry* log_entry = prog_thread[prog_thread_id].store_vector[serial_index][address_index];
 
@@ -1974,20 +1975,20 @@ inline void wlpdstm::TxMixinv::AbortEarlySpecReads(unsigned address_index){
 	int future_writer = prog_thread[prog_thread_id].next_task-1;
 
 	for(int i = serial+1; i < prog_thread[prog_thread_id].next_task-1; i++){
-		if(prog_thread[prog_thread_id].store_vector[i & (specdepth - 1)][address_index] != NULL){
+		if(atomic_load_acquire(&prog_thread[prog_thread_id].store_vector[i & (specdepth - 1)][address_index])){
 			future_writer = i;
 			break;
 		}
 	}
 
 	for(int i = serial+1; i <= future_writer; i++){
-		if(prog_thread[prog_thread_id].load_vector[i & (specdepth - 1)][address_index] == true){
+		if(atomic_load_acquire(&prog_thread[prog_thread_id].load_vector[i & (specdepth - 1)][address_index]) == 1){
 			//printf("found early spec readers\n");
-			for(int j=i; j < prog_thread[prog_thread_id].next_task;j++){
+			for(int j=i; j < prog_thread[prog_thread_id].next_task; j++){
 				//printf("abortearlyspecread %d index %d value %d\n", j, j%specdepth, prog_thread[prog_thread_id].aborted[j % specdepth]);
 				//prog_thread[prog_thread_id].aborted[j & (specdepth - 1)] = true;
-				//atomic_store_release(&prog_thread[prog_thread_id].aborted[j % specdepth], true);
-				atomic_cas_full(&prog_thread[prog_thread_id].aborted[j & (specdepth - 1)], false, true);
+				atomic_store_release(&prog_thread[prog_thread_id].aborted[j % specdepth], 1);
+				//atomic_cas_full(&prog_thread[prog_thread_id].aborted[j & (specdepth - 1)], false, true);
 			}
 			return;
 		}
@@ -1999,7 +2000,7 @@ inline void wlpdstm::TxMixinv::add_to_fw_read_log(unsigned address_index, Versio
 
 	//we search the future writer of this address
 	for(int i = serial+1; i < prog_thread[prog_thread_id].next_task-1; i++){
-		if(prog_thread[prog_thread_id].store_vector[i & (specdepth - 1)][address_index] != NULL){
+		if(atomic_load_acquire(&prog_thread[prog_thread_id].store_vector[i & (specdepth - 1)][address_index])){
 			future_writer = i;
 			break;
 		}
@@ -2007,7 +2008,7 @@ inline void wlpdstm::TxMixinv::add_to_fw_read_log(unsigned address_index, Versio
 
 	//and add a forward read log entry to all tasks from the present to the future writer
 	for(int i = serial+1; i <= future_writer; i++){
-		if(prog_thread[prog_thread_id].aborted[i & (specdepth - 1)] == false && prog_thread[prog_thread_id].load_vector[i & (specdepth - 1)][address_index]){
+		if(atomic_load_acquire(&prog_thread[prog_thread_id].aborted[i & (specdepth - 1)]) == 0 && atomic_load_acquire(&prog_thread[prog_thread_id].load_vector[i & (specdepth - 1)][address_index]) == 1){
 			//printf("add to fw read log serial %d i %d read_lock %p version %d\n",serial,i, read_lock, version);
 			ReadLogEntry *read_entry = prog_thread[prog_thread_id].fw_read_log[i & (specdepth - 1)].get_next();
 			read_entry->read_lock = read_lock;
@@ -2018,7 +2019,7 @@ inline void wlpdstm::TxMixinv::add_to_fw_read_log(unsigned address_index, Versio
 
 inline bool wlpdstm::TxMixinv::ActiveWriterAfterThisTask(unsigned address_index){
 	for(int i = serial+1; i < prog_thread[prog_thread_id].next_task; i++){
-		if(prog_thread[prog_thread_id].store_vector[i & (specdepth - 1)][address_index] != NULL){
+		if(atomic_load_acquire(&prog_thread[prog_thread_id].store_vector[i & (specdepth - 1)][address_index])){
 			return true;
 		}
 	}
@@ -2027,24 +2028,24 @@ inline bool wlpdstm::TxMixinv::ActiveWriterAfterThisTask(unsigned address_index)
 
 inline int wlpdstm::TxMixinv::PreviousActiveWriter(unsigned address_index){
 	for(int i = serial; i > prog_thread[prog_thread_id].last_commited_task; i--){
-		if(prog_thread[prog_thread_id].store_vector[i & (specdepth - 1)][address_index] != NULL){
+		if(atomic_load_acquire(&prog_thread[prog_thread_id].store_vector[i & (specdepth - 1)][address_index])){
 			return i;
 		}
 	}
 	return NONE;
 }
 
-inline void wlpdstm::TxMixinv::SetLoadVector(unsigned address_index, unsigned s_index, bool value){
+inline void wlpdstm::TxMixinv::SetLoadVector(unsigned address_index, unsigned s_index, Word value){
 
 	//printf("slv serial %d writelockindex %d value %d\n", serial, address_index, value);
 	//if(value) {
 		//prog_thread[prog_thread_id].load_vector[s_index][address_index] = serial;
 	//} else{
 		//if(prog_thread[prog_thread_id].load_vector[s_index][address_index] != value)
-			prog_thread[prog_thread_id].load_vector[s_index][address_index] = value;
+			//prog_thread[prog_thread_id].load_vector[s_index][address_index] = value;
 	//}
 	//if(value == true && prog_thread[prog_thread_id].load_vector[s_index][address_index] == 0) {
-		//atomic_store_release(&prog_thread[prog_thread_id].load_vector[s_index][address_index], value);
+		atomic_store_release(&prog_thread[prog_thread_id].load_vector[s_index][address_index], value);
 		//prog_thread[prog_thread_id].ldv_count[s_index]++;
 	//} else if(prog_thread[prog_thread_id].load_vector[s_index][address_index] != 0){
 		//atomic_store_release(&prog_thread[prog_thread_id].load_vector[s_index][address_index], 0);
@@ -2058,9 +2059,9 @@ inline void wlpdstm::TxMixinv::SetStoreVector(unsigned address_index, unsigned s
 	else if(prog_thread[prog_thread_id].store_vector[s_index][address_index] == NULL)
 		prog_thread[prog_thread_id].stv_count[s_index]++;
 */
-	prog_thread[prog_thread_id].store_vector[s_index][address_index] = entry;
+	//prog_thread[prog_thread_id].store_vector[s_index][address_index] = entry;
 
-	//atomic_store_release(&prog_thread[prog_thread_id].store_vector[s_index][address_index], entry);
+	atomic_store_release(&prog_thread[prog_thread_id].store_vector[s_index][address_index], entry);
 	//printf("ssv serial %d writelockindex %d value %08x\n", serial, address_index, entry);
 }
 
