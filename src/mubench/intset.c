@@ -620,14 +620,15 @@ typedef struct task_data {
   int diff;
   unsigned int seed;
   intset_t *set;
-  //tx_desc *tx;
   int **matrix;
   barrier_t *barrier;
   int *next_serial;
+  int *ops;
 } task_data_t;
 
 //#include "threadpool.c"
 
+#define NUM_OPS (1 << 26)
 #define TEST_MATRIX_SIZE 4
 /*
 void task_threadpool(void *data){
@@ -666,33 +667,30 @@ void* task_threads(void *data){
   TM_THREAD_ENTER();
 
   //unsigned long aborts = 0;
-  unsigned start = 1;
-  unsigned commit = 1;
 
   /* Wait on barrier */
   barrier_cross(d->barrier);
 
 #ifdef MUBENCH_WLPDSTM
-  while (AO_load_full(&stop) == 0) {
+  while(*d->next_serial < NUM_OPS - 1 && AO_load_full(&stop) == 0){
 #else
   while (stop == 0) {
 #endif /* MUBENCH_WLPDSTM */
 
   	serial = fetch_and_inc_full(d->next_serial);
 
-	val = rand_r(&d->seed) % 100;
-	if (val < d->update) {
+	if (d->ops[serial] < d->update) {
 	  if (last < 0) {
 		/* Add random value */
 		val = (rand_r(&d->seed) % d->range) + 1;
-		if (set_add(d->set, val, start, commit, d->ptid, serial TM_ARG_LAST)) {
+		if (set_add(d->set, val, 1, 1, d->ptid, serial TM_ARG_LAST)) {
 		  d->diff++;
 		  last = val;
 		}
 		d->nb_add++;
 	  } else {
 		/* Remove last value */
-		if (set_remove(d->set, last, start, commit, d->ptid, serial TM_ARG_LAST))
+		if (set_remove(d->set, last, 1, 1, d->ptid, serial TM_ARG_LAST))
 		  d->diff--;
 		d->nb_remove++;
 		last = -1;
@@ -700,7 +698,7 @@ void* task_threads(void *data){
 	} else {
 	  /* Look for random value */
 	  val = (rand_r(&d->seed) % d->range) + 1;
-	  if (set_contains(d->set, val, start, commit, d->ptid, serial TM_ARG_LAST))
+	  if (set_contains(d->set, val, 1, 1, d->ptid, serial TM_ARG_LAST))
 		d->nb_found++;
 	  d->nb_contains++;
 	}
@@ -901,6 +899,7 @@ int main(int argc, char **argv)
   int range = DEFAULT_RANGE;
   int seed = DEFAULT_SEED;
   int update = DEFAULT_UPDATE;
+  int *ops = malloc(NUM_OPS * sizeof(int));
   int **matriz = malloc(TEST_MATRIX_SIZE * sizeof(int *));
 
   for(i = 0; i < TEST_MATRIX_SIZE; i++){
@@ -1037,14 +1036,19 @@ int main(int argc, char **argv)
   size = set_size(set);
   printf("Set size     : %d\n", size);
 
+  for(i = 0; i < NUM_OPS; i++){
+	  ops[i] = rand() % 100;
+	  //printf("%d\n", ops[i]);
+  }
+
   /* Access set from all threads */
   barrier_init(&barrier, nb_threads * nb_tasks + 1);
   pthread_attr_init(&attr);
   pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
   for (i = 0; i < nb_threads; i++) {
+	  int next_serial = 0;
 	  for(j = 0; j < nb_tasks; j++){
 		int index = i*nb_tasks + j;
-		int next_serial = 0;
 
 		printf("Creating task %d of program thread %d \n", j, i);
 		data[index].range = range;
@@ -1060,6 +1064,7 @@ int main(int argc, char **argv)
 		data[index].ptid = i;
 		data[index].matrix = matriz;
 		data[index].next_serial = &next_serial;
+		data[index].ops = ops;
 
 		if (pthread_create(&threads[index], &attr, task_threads, (void *)(&data[index])) != 0) {
 		  fprintf(stderr, "Error creating thread\n");
@@ -1094,12 +1099,12 @@ int main(int argc, char **argv)
   }
 
   //print the matrix after the test is over
-  for(i = 0; i < TEST_MATRIX_SIZE; i++){
+  /*for(i = 0; i < TEST_MATRIX_SIZE; i++){
   	  for(j = 0; j < TEST_MATRIX_SIZE; j++){
   	    printf("%d ", matriz[i][j]);
   	  }
   	  printf("\n");
-  }
+  }*/
 
   duration = (end.tv_sec * 1000 + end.tv_usec / 1000) - (start.tv_sec * 1000 + start.tv_usec / 1000);
   reads = 0;

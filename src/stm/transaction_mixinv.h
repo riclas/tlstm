@@ -942,17 +942,13 @@ inline void wlpdstm::TxMixinv::TxCommit() {
 inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 	//printf("trycommit %d\n",serial);
 	//if this task was told to abort in the meantime we abort and rollback
-	if(prog_thread[prog_thread_id].aborted[serial_index] == 1){
+	if(atomic_load_acquire(&prog_thread[prog_thread_id].aborted[serial_index]) == 1){
 		//printf("987\n");
 		Rollback();
 		return RESTART_EXTERNAL;
 	}
 
 	Word ts = valid_ts;
-
-	//if the transaction is read only until now, we check if it has become a writer with this task
-	if(tx_state.read_only == true)
-		tx_state.read_only = prog_thread[prog_thread_id].write_log[serial_index].empty();
 
 	//TLSTM
 	//Check valid_ts of task, validate or rollback
@@ -976,6 +972,10 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 			tx_state.valid_ts = ts;
 		}
 	}
+
+	//if the transaction is read only until now, we check if it has become a writer with this task
+	if(tx_state.read_only == true)
+		tx_state.read_only = prog_thread[prog_thread_id].write_log[serial_index].empty();
 
 	if(try_commit){
 		//commit a write transaction
@@ -1560,7 +1560,7 @@ inline bool wlpdstm::TxMixinv::ValidateCommit(unsigned s) {
 					continue;
 				}
 			}
-
+printf("aborted because of fw_read_log\n");
 			return false;
 		}
 	}
