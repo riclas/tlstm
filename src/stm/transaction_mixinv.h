@@ -952,7 +952,8 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 
 	//TLSTM
 	//Check valid_ts of task, validate or rollback
-	if(tx_state.valid_ts > ts){
+	//Only needed when dividing transactions in tasks
+	/*if(tx_state.valid_ts > ts){
 		if(!ValidateCommit(serial)){
 			//printf("1066\n");
 			Rollback(serial);
@@ -961,7 +962,7 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 		}
 	} else {
 		if(tx_state.valid_ts < ts){
-			for(int s = tx_state.first_serial; s <= serial; s++){
+			for(int s = tx_state.first_serial; s < serial; s++){
 				if(!ValidateCommit(s)){
 					//printf("1075\n");
 					Rollback(s);
@@ -972,7 +973,7 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 			tx_state.valid_ts = ts;
 		}
 	}
-
+*/
 	//if the transaction is read only until now, we check if it has become a writer with this task
 	if(tx_state.read_only == true)
 		tx_state.read_only = prog_thread[prog_thread_id].write_log[serial_index].empty();
@@ -1196,8 +1197,6 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 	stats.IncrementStatistics(Statistics::WRITES);
 #endif /* DETAILED_STATS */
 	
-	// read lock value
-	WriteLock lock_value = (WriteLock)atomic_load_no_barrier(write_lock);
 	unsigned address_index = map_address_to_index(address);
 
 	//TLSTM
@@ -1208,6 +1207,9 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 		return log_entry;
 	}
 	
+	// read lock value
+	WriteLock lock_value = (WriteLock)atomic_load_no_barrier(write_lock);
+
 #ifdef DETAILED_STATS
 	stats.IncrementStatistics(Statistics::NEW_WRITES);
 #endif /* DETAILED_STATS */
@@ -1231,15 +1233,6 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 				YieldCPU();
 			}
 		}
-		
-		// prepare write log entry
-		WriteLogEntry *log_entry = prog_thread[prog_thread_id].write_log[serial_index].get_next();
-		log_entry->write_lock = write_lock;
-		log_entry->ClearWordLogEntries(); // need this here TODO - maybe move this to commit/abort time
-		log_entry->owner = this; // this is for CM - TODO: try to move it out of write path
-		log_entry->address_index = address_index;
-		
-		SetStoreVector(address_index, serial_index, log_entry);
 
 		// now try to lock it
 		if(lock_value == prog_thread_id || atomic_cas_release(write_lock, WRITE_LOCK_CLEAR, prog_thread_id)) {
@@ -1259,22 +1252,24 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 					TxRestart(RESTART_VALIDATION);
 				}
 			}
-			
-			// success
+
+			// prepare write log entry
+			WriteLogEntry *log_entry = prog_thread[prog_thread_id].write_log[serial_index].get_next();
+			log_entry->write_lock = write_lock;
+			log_entry->ClearWordLogEntries(); // need this here TODO - maybe move this to commit/abort time
+			log_entry->owner = this; // this is for CM - TODO: try to move it out of write path
+			log_entry->address_index = address_index;
 			log_entry->read_lock = read_lock;
 			log_entry->old_version = version;
 			CmOnAccess();
+
+			SetStoreVector(address_index, serial_index, log_entry);
 
 			//tell the future tasks that have read from this address to abort because the value was updated
 			AbortEarlySpecReads(address_index);
 
 			return log_entry;
 		}
-
-		// someone locked it in the meantime
-		// return last element back to the log
-		prog_thread[prog_thread_id].write_log[serial_index].delete_last();
-		SetStoreVector(address_index, serial_index, NULL);
 		
 		// read version again
 		lock_value = (WriteLock)atomic_load_acquire(write_lock);
@@ -1386,6 +1381,12 @@ inline Word wlpdstm::TxMixinv::ReadWord(Word *address) {
 
 inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 
+	if(atomic_load_acquire(&prog_thread[prog_thread_id].aborted[serial_index]) == 1){
+			//printf("987\n");
+			Rollback(serial);
+			TxRestart(RESTART_VALIDATION);
+	}
+
 	if(address < (Word *)0xff){
 		//printf("inconsistent read at %p on task %d\n", address, serial);
 		//if it's a speculative task we have an inconsistent read
@@ -1396,7 +1397,7 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 			Rollback(serial);
 			TxRestart(RESTART_VALIDATION);
 		} else {
-			printf("deref null! \n");
+			printf("deref null! %d\n", prog_thread[prog_thread_id].aborted[serial_index]);
 		}
 
 	}

@@ -624,12 +624,14 @@ typedef struct task_data {
   barrier_t *barrier;
   int *next_serial;
   int *ops;
+  int height;
+  int width;
 } task_data_t;
 
 //#include "threadpool.c"
 
 #define NUM_OPS (1 << 26)
-#define TEST_MATRIX_SIZE 4
+//#define TEST_MATRIX_SIZE 4
 /*
 void task_threadpool(void *data){
 	task_data_t *d = (task_data_t *)data;
@@ -739,7 +741,7 @@ void task2(void *data){
 
 void* task_matrix(void *data){
 	task_data_t *d = (task_data_t *)data;
-    int i, serial, v1, v2, end = 0;
+    int i, serial, v1, v2, line, end = 0;
 
     TM_THREAD_ENTER();
 
@@ -748,20 +750,16 @@ void* task_matrix(void *data){
     while (AO_load_full(&stop) == 0 && !end) {
 
     	serial = fetch_and_inc_full(d->next_serial);
+    	line = d->ops[serial];
 
 		START_ID(0,1,1,0,serial);
 
-		for(i = 0; i < TEST_MATRIX_SIZE; i++){
-			v1 = TM_SHARED_READ(d->matrix[serial % TEST_MATRIX_SIZE][i]);
-		}
+		for(i = 0; i < d->width; i++){
+			v1 = TM_SHARED_READ(d->matrix[line][i]);
 
-		if(serial % TEST_MATRIX_SIZE < TEST_MATRIX_SIZE - 1){
-			for(i = 0; i < TEST_MATRIX_SIZE; i++){
-				v2 = TM_SHARED_READ(d->matrix[serial % TEST_MATRIX_SIZE +1][i]);
-				TM_SHARED_WRITE(d->matrix[serial % TEST_MATRIX_SIZE + 1][i], v1+v2);
-			}
+			v2 = TM_SHARED_READ(d->matrix[(line +1) % d->height][i]);
+			TM_SHARED_WRITE(d->matrix[(line+2) % d->height][i], v1+v2);
 		}
-
 		COMMIT;
 
 		//check for bug
@@ -899,19 +897,14 @@ int main(int argc, char **argv)
   int range = DEFAULT_RANGE;
   int seed = DEFAULT_SEED;
   int update = DEFAULT_UPDATE;
+  int height = 10;
+  int width = 10;
   int *ops = malloc(NUM_OPS * sizeof(int));
-  int **matriz = malloc(TEST_MATRIX_SIZE * sizeof(int *));
-
-  for(i = 0; i < TEST_MATRIX_SIZE; i++){
-    matriz[i] = malloc(TEST_MATRIX_SIZE * sizeof(int));
-    for(j = 0; j < TEST_MATRIX_SIZE; j++){
-	  matriz[i][j] = i+1;
-    }
-  }
+  int **matriz;
 
   while(1) {
     i = 0;
-    c = getopt_long(argc, argv, "hd:i:n:t:r:s:u:", long_options, &i);
+    c = getopt_long(argc, argv, "hd:i:n:t:r:s:u:g:w:", long_options, &i);
 
     if(c == -1)
       break;
@@ -974,6 +967,12 @@ int main(int argc, char **argv)
      case 'u':
        update = atoi(optarg);
        break;
+     case 'g':
+       height = atoi(optarg);
+       break;
+     case 'w':
+       width = atoi(optarg);
+       break;
      case '?':
        printf("Use -h or --help for help\n");
        exit(0);
@@ -1014,6 +1013,15 @@ int main(int argc, char **argv)
     exit(1);
   }
 
+  matriz = malloc(height * sizeof(int *));
+
+  for(i = 0; i < height; i++){
+    matriz[i] = malloc(width * sizeof(int));
+    for(j = 0; j < width; j++){
+ 	  matriz[i][j] = i+1;
+    }
+  }
+
   if (seed == 0)
     srand((int)time(0));
   else
@@ -1037,7 +1045,9 @@ int main(int argc, char **argv)
   printf("Set size     : %d\n", size);
 
   for(i = 0; i < NUM_OPS; i++){
-	  ops[i] = rand() % 100;
+	  //ops[i] = rand() % 100;
+
+	  ops[i] = (i*3) % height;
 	  //printf("%d\n", ops[i]);
   }
 
@@ -1065,6 +1075,8 @@ int main(int argc, char **argv)
 		data[index].matrix = matriz;
 		data[index].next_serial = &next_serial;
 		data[index].ops = ops;
+		data[index].height = height;
+		data[index].width = width;
 
 		if (pthread_create(&threads[index], &attr, task_threads, (void *)(&data[index])) != 0) {
 		  fprintf(stderr, "Error creating thread\n");
@@ -1099,12 +1111,12 @@ int main(int argc, char **argv)
   }
 
   //print the matrix after the test is over
-  /*for(i = 0; i < TEST_MATRIX_SIZE; i++){
-  	  for(j = 0; j < TEST_MATRIX_SIZE; j++){
+  for(i = 0; i < height; i++){
+  	  for(j = 0; j < width; j++){
   	    printf("%d ", matriz[i][j]);
   	  }
   	  printf("\n");
-  }*/
+  }
 
   duration = (end.tv_sec * 1000 + end.tv_usec / 1000) - (start.tv_sec * 1000 + start.tv_usec / 1000);
   reads = 0;
