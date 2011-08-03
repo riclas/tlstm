@@ -479,6 +479,7 @@ namespace wlpdstm {
 		unsigned serial_index, prog_thread_id;
 		int serial;
 		bool try_commit;
+		bool speculative_task;
 
 #ifdef PRIVATIZATION_QUIESCENCE
 		Word *quiescence_ts;
@@ -819,7 +820,7 @@ inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit
 
 		//serial = prog_thread[prog_thread_id].next_task++;
 		serial_index = serial & (specdepth - 1);
-		//printf("txstart %d\n",serial);
+		//printf("txstart %d %d\n",serial, thread_id);
 
 		//create new transaction state to be shared by all tasks of a transaction
 		if(start_tx){
@@ -897,6 +898,8 @@ inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit
 
 	prog_thread[prog_thread_id].aborted[serial_index] = 0;
 
+	speculative_task = true;
+
 #ifdef SIGNALING
 	ClearSignals();
 #endif /* SIGNALING */	
@@ -922,6 +925,14 @@ inline void wlpdstm::TxMixinv::TxCommit() {
 	}*/
 
 	RestartCause ret = TxTryCommit();
+
+	/*for(int s = tx_state.first_serial; s <= serial; s++){
+			for(WriteLog::iterator iter = prog_thread[prog_thread_id].write_log[s & (specdepth - 1)].begin();iter.hasNext();iter.next()) {
+				WriteLogEntry &entry = *iter;
+				if(*(entry.read_lock) == READ_LOCK_SET)
+					printf("%p locked! ret=%d\n", entry.read_lock, ret);
+			}
+	}*/
 
 	if(ret) {
 		//printf("956\n");
@@ -1061,6 +1072,9 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 					// release locks
 					atomic_store_release(entry.read_lock, commitVersion);
 
+					if(commitVersion == READ_LOCK_SET)
+						printf("%p\n", entry.read_lock);
+
 					//if there is a future active writer for this address we leave its writelock locked
 					if(!ActiveWriterAfterThisTask(entry.address_index)){
 						atomic_store_release(entry.write_lock, WRITE_LOCK_CLEAR);
@@ -1125,6 +1139,9 @@ inline void wlpdstm::TxMixinv::ReleaseReadLocks() {
 		for(WriteLog::iterator iter = prog_thread[prog_thread_id].write_log[s & (specdepth - 1)].begin();iter.hasNext();iter.next()) {
 			WriteLogEntry &entry = *iter;
 			*(entry.read_lock) = entry.old_version;
+			if(*entry.read_lock == READ_LOCK_SET)
+				printf("old %p\n", entry.read_lock);
+
 		}
 	}
 }
@@ -1241,6 +1258,11 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 			VersionLock *read_lock = map_write_lock_to_read_lock(write_lock);
 			VersionLock version = (VersionLock)atomic_load_acquire(read_lock);
 			
+			while(is_read_locked(version)) {
+				version = (VersionLock)atomic_load_acquire(read_lock);
+				YieldCPU();
+			}
+
 //			if(get_value(version) > valid_ts) {
 			if(ShouldExtend(version)) {
 				if(!Extend()) {
@@ -1381,33 +1403,31 @@ inline Word wlpdstm::TxMixinv::ReadWord(Word *address) {
 
 inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 
-	if(atomic_load_acquire(&prog_thread[prog_thread_id].aborted[serial_index]) == 1){
-			//printf("987\n");
-			Rollback(serial);
-			TxRestart(RESTART_VALIDATION);
-	}
+	unsigned address_index = map_address_to_index(address);
 
-	if(address < (Word *)0xff){
-		//printf("inconsistent read at %p on task %d\n", address, serial);
-		//if it's a speculative task we have an inconsistent read
-		if(serial > prog_thread[prog_thread_id].last_completed_task+1){
+	if(serial > prog_thread[prog_thread_id].last_completed_task+1){
+		if(address < (Word *)0xff){
+			//printf("inconsistent read at %p on task %d\n", address, serial);
+			//if it's a speculative task we have an inconsistent read
 			stats.IncrementStatistics(Statistics::ABORT_READ_VALIDATE);
 			IncrementReadAbortStats();
 			//printf("1398\n");
 			Rollback(serial);
 			TxRestart(RESTART_VALIDATION);
 		} else {
-			printf("deref null! %d\n", prog_thread[prog_thread_id].aborted[serial_index]);
+			SetLoadVector(address_index, serial_index, 1);
 		}
-
+	} else if(speculative_task){
+		if(atomic_load_acquire(&prog_thread[prog_thread_id].aborted[serial_index]) == 1){
+			//printf("987\n");
+			Rollback(serial);
+			TxRestart(RESTART_VALIDATION);
+		}
+		speculative_task = false;
 	}
 
-	unsigned address_index = map_address_to_index(address);
 	WriteLock *write_lock = map_index_to_write_lock(address_index);
 
-	//if it's a speculative task we mark the task's load vector for the read address
-	if(serial > prog_thread[prog_thread_id].last_completed_task + 1)
-		SetLoadVector(address_index, serial_index, 1);
 /*
 	WriteLogEntry* log_entry = prog_thread[prog_thread_id].store_vector[serial_index][address_index];
 

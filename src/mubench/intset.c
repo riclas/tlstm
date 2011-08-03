@@ -662,7 +662,7 @@ void task_threadpool(void *data){
 }
 */
 void* task_threads(void *data){
-  int serial, val, last = -1;
+  int serial = 0, val, last = -1;
   task_data_t *d = (task_data_t *)data;
 
   /* init thread */
@@ -1045,9 +1045,13 @@ int main(int argc, char **argv)
   printf("Set size     : %d\n", size);
 
   for(i = 0; i < NUM_OPS; i++){
-	  //ops[i] = rand() % 100;
-
-	  ops[i] = (i*3) % height;
+	  /*if(i % 2 == 0)
+		  ops[i] = 10;
+	  else
+		 ops[i] = 30;
+	*/
+	  ops[i] = rand() % 100;
+	  //ops[i] = (i*3) % height;
 	  //printf("%d\n", ops[i]);
   }
 
@@ -1056,7 +1060,8 @@ int main(int argc, char **argv)
   pthread_attr_init(&attr);
   pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
   for (i = 0; i < nb_threads; i++) {
-	  int next_serial = 0;
+	  int *next_serial = (int*)malloc(sizeof(int));
+	  *next_serial = 0;
 	  for(j = 0; j < nb_tasks; j++){
 		int index = i*nb_tasks + j;
 
@@ -1073,7 +1078,7 @@ int main(int argc, char **argv)
 		data[index].barrier = &barrier;
 		data[index].ptid = i;
 		data[index].matrix = matriz;
-		data[index].next_serial = &next_serial;
+		data[index].next_serial = next_serial;
 		data[index].ops = ops;
 		data[index].height = height;
 		data[index].width = width;
@@ -1111,12 +1116,12 @@ int main(int argc, char **argv)
   }
 
   //print the matrix after the test is over
-  for(i = 0; i < height; i++){
+  /*for(i = 0; i < height; i++){
   	  for(j = 0; j < width; j++){
   	    printf("%d ", matriz[i][j]);
   	  }
   	  printf("\n");
-  }
+  }*/
 
   duration = (end.tv_sec * 1000 + end.tv_usec / 1000) - (start.tv_sec * 1000 + start.tv_usec / 1000);
   reads = 0;
