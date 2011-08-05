@@ -662,7 +662,7 @@ void task_threadpool(void *data){
 }
 */
 void* task_threads(void *data){
-  int serial = 0, val, last = -1;
+  int serial, val, last = -1;
   task_data_t *d = (task_data_t *)data;
 
   /* init thread */
@@ -900,7 +900,7 @@ int main(int argc, char **argv)
   int height = 10;
   int width = 10;
   int *ops = malloc(NUM_OPS * sizeof(int));
-  int **matriz;
+  //int **matriz;
 
   while(1) {
     i = 0;
@@ -1012,7 +1012,7 @@ int main(int argc, char **argv)
     perror("malloc");
     exit(1);
   }
-
+/*
   matriz = malloc(height * sizeof(int *));
 
   for(i = 0; i < height; i++){
@@ -1021,7 +1021,7 @@ int main(int argc, char **argv)
  	  matriz[i][j] = i+1;
     }
   }
-
+*/
   if (seed == 0)
     srand((int)time(0));
   else
@@ -1045,14 +1045,7 @@ int main(int argc, char **argv)
   printf("Set size     : %d\n", size);
 
   for(i = 0; i < NUM_OPS; i++){
-	  /*if(i % 2 == 0)
-		  ops[i] = 10;
-	  else
-		 ops[i] = 30;
-	*/
 	  ops[i] = rand() % 100;
-	  //ops[i] = (i*3) % height;
-	  //printf("%d\n", ops[i]);
   }
 
   /* Access set from all threads */
@@ -1060,8 +1053,8 @@ int main(int argc, char **argv)
   pthread_attr_init(&attr);
   pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
   for (i = 0; i < nb_threads; i++) {
-	  int *next_serial = (int*)malloc(sizeof(int));
-	  *next_serial = 0;
+	  int *next_serial = (int*)calloc(1,sizeof(int));
+
 	  for(j = 0; j < nb_tasks; j++){
 		int index = i*nb_tasks + j;
 
@@ -1077,7 +1070,7 @@ int main(int argc, char **argv)
 		data[index].set = set;
 		data[index].barrier = &barrier;
 		data[index].ptid = i;
-		data[index].matrix = matriz;
+		//data[index].matrix = matriz;
 		data[index].next_serial = next_serial;
 		data[index].ops = ops;
 		data[index].height = height;
