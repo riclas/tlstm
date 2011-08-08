@@ -651,7 +651,7 @@ inline void wlpdstm::TxMixinv::InitializeWriteLocks() {
 
 inline void wlpdstm::TxMixinv::InitializeProgramThreads() {
 
-	for(int i=0; i < 2; i++){
+	for(unsigned i=0; i < MAX_THREADS; i++){
 		prog_thread[i].read_log = new ReadLog[specdepth];
 		prog_thread[i].write_log = new WriteLog[specdepth];
 		prog_thread[i].fw_read_log = new ReadLog[specdepth];
