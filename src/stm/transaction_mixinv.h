@@ -1464,10 +1464,10 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 
 				if(word_log_entry != NULL) {
 					// if it was written return from log
-					value = MaskWord(word_log_entry);
+					return MaskWord(word_log_entry);
 				} else {
 					// if it was not written return from memory
-					value = (Word)atomic_load_no_barrier(address);
+					return (Word)atomic_load_no_barrier(address);
 				}
 			}
 		} else {
