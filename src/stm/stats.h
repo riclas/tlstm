@@ -87,6 +87,7 @@ namespace wlpdstm {
 				"Commit",
 				"CommitReadOnly",
 				"Abort",
+				"AbortSpecReaders",
 				"AbortWriteLocked",
 				"AbortWriteValidate",
 				"AbortReadValidate",

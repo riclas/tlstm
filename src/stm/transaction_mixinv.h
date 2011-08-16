@@ -954,6 +954,8 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 	//printf("trycommit %d\n",serial);
 	//if this task was told to abort in the meantime we abort and rollback
 	if(atomic_load_acquire(&prog_thread[prog_thread_id].aborted[serial_index]) == 1){
+		stats.IncrementStatistics(Statistics::ABORT_SPEC_READERS);
+
 		//printf("987\n");
 		Rollback();
 		return RESTART_EXTERNAL;
@@ -1412,6 +1414,8 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 		}
 	} else if(speculative_task){
 		if(atomic_load_acquire(&prog_thread[prog_thread_id].aborted[serial_index]) == 1){
+			stats.IncrementStatistics(Statistics::ABORT_SPEC_READERS);
+
 			//printf("987\n");
 			Rollback(serial);
 			TxRestart(RESTART_VALIDATION);
@@ -1536,6 +1540,15 @@ inline bool wlpdstm::TxMixinv::Validate() {
 		}
 	}
 	
+	for(iter = prog_thread[prog_thread_id].fw_read_log[serial_index].begin();iter.hasNext();iter.next()) {
+		ReadLogEntry &entry = *iter;
+		VersionLock currentVersion = (VersionLock)atomic_load_no_barrier(entry.read_lock);
+
+		if(currentVersion != entry.version) {
+			return false;
+		}
+	}
+
 	return true;
 }
 
@@ -1999,7 +2012,6 @@ inline void wlpdstm::TxMixinv::AbortEarlySpecReads(unsigned address_index){
 		if(atomic_load_acquire(&prog_thread[prog_thread_id].load_vector[i & (specdepth - 1)][address_index]) == 1){
 			//printf("found early spec readers\n");
 			for(int j=i; j < prog_thread[prog_thread_id].next_task; j++){
-				stats.IncrementStatistics(Statistics::ABORT_SPEC_READERS);
 				//printf("abortearlyspecread %d index %d value %d\n", j, j%specdepth, prog_thread[prog_thread_id].aborted[j % specdepth]);
 				//prog_thread[prog_thread_id].aborted[j & (specdepth - 1)] = true;
 				atomic_store_release(&prog_thread[prog_thread_id].aborted[j % specdepth], 1);
