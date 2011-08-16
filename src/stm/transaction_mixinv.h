@@ -1252,7 +1252,7 @@ inline void wlpdstm::TxMixinv::LockMemoryStripe(WriteLock *write_lock, Word *add
 			YieldCPU();
 			continue;
 			
-		} else if(lock_value != prog_thread_id && ShouldAbortWrite(write_lock, address_index)) {
+		} else if(lock_value != WRITE_LOCK_CLEAR && ShouldAbortWrite(write_lock, address_index)) {
 				stats.IncrementStatistics(Statistics::ABORT_WRITE_LOCKED);
 				IncrementWriteAbortStats();
 				
