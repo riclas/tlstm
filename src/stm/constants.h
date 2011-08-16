@@ -64,6 +64,7 @@ namespace wlpdstm {
 
 //TLSTM
 #define WRITE_LOCK_CLEAR ((Word)999)
+#define WRITE_LOCK_COMMIT ((Word)998)
 //SwissTM
 //#define WRITE_LOCK_CLEAR ((Word)0)
 

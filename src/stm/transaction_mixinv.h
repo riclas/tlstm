@@ -307,7 +307,7 @@ namespace wlpdstm {
 
 		WriteLock *map_index_to_write_lock(unsigned index);
 		
-		WriteLogEntry *LockMemoryStripe(WriteLock *write_lock, Word *address);
+		void LockMemoryStripe(WriteLock *write_lock, Word *address, Word value, Word mask);
 		
 		bool Validate();
 		
@@ -651,7 +651,7 @@ inline void wlpdstm::TxMixinv::InitializeWriteLocks() {
 
 inline void wlpdstm::TxMixinv::InitializeProgramThreads() {
 
-	for(unsigned i=0; i < MAX_THREADS; i++){
+	for(unsigned i=0; i < MAX_THREADS / specdepth; i++){
 		prog_thread[i].read_log = new ReadLog[specdepth];
 		prog_thread[i].write_log = new WriteLog[specdepth];
 		prog_thread[i].fw_read_log = new ReadLog[specdepth];
@@ -1072,9 +1072,13 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 					// release locks
 					atomic_store_release(entry.read_lock, commitVersion);
 
+					atomic_store_release(entry.write_lock, WRITE_LOCK_COMMIT);
+
 					//if there is a future active writer for this address we leave its writelock locked
 					if(!ActiveWriterAfterThisTask(entry.address_index)){
 						atomic_store_release(entry.write_lock, WRITE_LOCK_CLEAR);
+					} else {
+						atomic_store_release(entry.write_lock, prog_thread_id);
 					}
 
 					//add this entry to the forward read logs
@@ -1090,8 +1094,10 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 			stats.IncrementStatistics(Statistics::COMMIT_READ_ONLY);
 		}
 		//free(tx_state);
-
+		prog_thread[prog_thread_id].last_commited_task = serial;
 	}
+
+	prog_thread[prog_thread_id].last_completed_task = serial;
 
 	atomic_store_release(&tx_status, TX_COMMITTED);
 
@@ -1119,12 +1125,6 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 	stats.IncrementStatistics(Statistics::COMMIT);
 	
 	succ_aborts = 0;
-
-	prog_thread[prog_thread_id].last_completed_task = serial;
-
-	if(try_commit)
-		prog_thread[prog_thread_id].last_commited_task = serial;
-
 
 //printf("commited %d\n",serial);
 	return NO_RESTART;
@@ -1203,7 +1203,7 @@ inline void wlpdstm::TxMixinv::IncrementWriteAbortStats() {
 #endif /* INFLUENCE_DIAGRAM_STATS */
 }
 
-inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(WriteLock *write_lock, Word *address) {
+inline void wlpdstm::TxMixinv::LockMemoryStripe(WriteLock *write_lock, Word *address, Word value, Word mask) {
 #ifdef DETAILED_STATS
 	stats.IncrementStatistics(Statistics::WRITES);
 #endif /* DETAILED_STATS */
@@ -1214,21 +1214,43 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 	WriteLogEntry* log_entry = prog_thread[prog_thread_id].store_vector[serial_index][address_index];
 
 	//If locked by my program thread and furthermore by my task, return quickly
-	if(/*lock_value == prog_thread_id && */log_entry != NULL) {
-		return log_entry;
+	if(log_entry != NULL) {
+
+		// insert (address, value) pair into the log
+		log_entry->InsertWordLogEntry(address, value, mask);
+		return;
 	}
 	
-	// read lock value
-	WriteLock lock_value = (WriteLock)atomic_load_no_barrier(write_lock);
-
 #ifdef DETAILED_STATS
 	stats.IncrementStatistics(Statistics::NEW_WRITES);
 #endif /* DETAILED_STATS */
 
+	// prepare write log entry
+	log_entry = prog_thread[prog_thread_id].write_log[serial_index].get_next();
+	log_entry->write_lock = write_lock;
+	log_entry->ClearWordLogEntries(); // need this here TODO - maybe move this to commit/abort time
+	log_entry->owner = this; // this is for CM - TODO: try to move it out of write path
+	log_entry->address_index = address_index;
+
+	// insert (address, value) pair into the log
+	log_entry->InsertWordLogEntry(address, value, mask);
+
+	SetStoreVector(address_index, serial_index, log_entry);
+
+	// read lock value
+	WriteLock lock_value = (WriteLock)atomic_load_no_barrier(write_lock);
+
 	while(true) {
-		if(lock_value != WRITE_LOCK_CLEAR && lock_value != prog_thread_id) {
+		if(lock_value == prog_thread_id || atomic_cas_release(write_lock, WRITE_LOCK_CLEAR, prog_thread_id)) {
+			break;
+
+		} else if(lock_value == WRITE_LOCK_COMMIT){
+			// read version again
+			lock_value = (WriteLock)atomic_load_acquire(write_lock);
+			YieldCPU();
+			continue;
 			
-			if(ShouldAbortWrite(write_lock, address_index)) {
+		} else if(lock_value != prog_thread_id && ShouldAbortWrite(write_lock, address_index)) {
 				stats.IncrementStatistics(Statistics::ABORT_WRITE_LOCKED);
 				IncrementWriteAbortStats();
 				
@@ -1239,66 +1261,40 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 				//printf("1201\n");
 				Rollback(serial);
 				TxRestart(RESTART_LOCK);
-			} else {
-				lock_value = (WriteLock)atomic_load_acquire(write_lock);
-				YieldCPU();
-			}
+		} else {
+			lock_value = (WriteLock)atomic_load_acquire(write_lock);
+			YieldCPU();
 		}
+	}
 
-		// prepare write log entry
-		WriteLogEntry *log_entry = prog_thread[prog_thread_id].write_log[serial_index].get_next();
-		log_entry->write_lock = write_lock;
-		log_entry->ClearWordLogEntries(); // need this here TODO - maybe move this to commit/abort time
-		log_entry->owner = this; // this is for CM - TODO: try to move it out of write path
-		log_entry->address_index = address_index;
+	// need to check read set validity if this address was read before
+	// we skip this read_before() check TODO: maybe do that
+	VersionLock *read_lock = map_write_lock_to_read_lock(write_lock);
+	VersionLock version = (VersionLock)atomic_load_acquire(read_lock);
 
-		// now try to lock it
-		if(lock_value == prog_thread_id || atomic_cas_release(write_lock, WRITE_LOCK_CLEAR, prog_thread_id)) {
-			// need to check read set validity if this address was read before
-			// we skip this read_before() check TODO: maybe do that
-			VersionLock *read_lock = map_write_lock_to_read_lock(write_lock);
-			VersionLock version = (VersionLock)atomic_load_acquire(read_lock);
-			
-			while(is_read_locked(version)) {
-				version = (VersionLock)atomic_load_acquire(read_lock);
-				YieldCPU();
-			}
-
-//			if(get_value(version) > valid_ts) {
-			if(ShouldExtend(version)) {
-				if(!Extend()) {
-					stats.IncrementStatistics(Statistics::ABORT_WRITE_VALIDATE);
-					IncrementReadAbortStats();
-					//printf("1259\n");
-					Rollback(serial);
-
-					TxRestart(RESTART_VALIDATION);
-				}
-			}
-
-			log_entry->read_lock = read_lock;
-			log_entry->old_version = version;
-			CmOnAccess();
-
-			SetStoreVector(address_index, serial_index, log_entry);
-
-			//tell the future tasks that have read from this address to abort because the value was updated
-			AbortEarlySpecReads(address_index);
-
-			return log_entry;
-		}
-		
-		//someone locked it in the meantime
-		prog_thread[prog_thread_id].write_log[serial_index].delete_last();
-		SetStoreVector(address_index, serial_index, NULL);
-
-		// read version again
-		lock_value = (WriteLock)atomic_load_acquire(write_lock);
+	while(is_read_locked(version)) {
+		version = (VersionLock)atomic_load_acquire(read_lock);
 		YieldCPU();
 	}
+
+	//			if(get_value(version) > valid_ts) {
+	if(ShouldExtend(version)) {
+		if(!Extend()) {
+			stats.IncrementStatistics(Statistics::ABORT_WRITE_VALIDATE);
+			IncrementReadAbortStats();
+			//printf("1259\n");
+			Rollback(serial);
+
+			TxRestart(RESTART_VALIDATION);
+		}
+	}
 	
-	// this can never happen
-	return NULL;
+	log_entry->read_lock = read_lock;
+	log_entry->old_version = version;
+	CmOnAccess();
+
+	//tell the future tasks that have read from this address to abort because the value was updated
+	AbortEarlySpecReads(address_index);
 }
 
 inline void wlpdstm::TxMixinv::WriteWord(Word *address, Word value, Word mask) {
@@ -1318,10 +1314,8 @@ inline void wlpdstm::TxMixinv::WriteWordInner(Word *address, Word value, Word ma
 	VersionLock *write_lock = map_address_to_write_lock(address);
 	
 	// try to lock the address - it will abort if address cannot be locked
-	WriteLogEntry *log_entry = LockMemoryStripe(write_lock, address);
+	LockMemoryStripe(write_lock, address, value, mask);
 	
-	// insert (address, value) pair into the log
-	log_entry->InsertWordLogEntry(address, value, mask);
 }
 
 #ifdef SUPPORT_LOCAL_WRITES
@@ -1626,7 +1620,7 @@ inline void wlpdstm::TxMixinv::LockMemoryBlock(void *address, size_t size) {
 		curr = map_address_to_write_lock((Word *)address);
 		
 		if(curr != old) {
-			LockMemoryStripe(curr, (Word *)address);
+			LockMemoryStripe(curr, (Word *)address, 0, LOG_ENTRY_UNMASKED);
 			old = curr;
 		}
 	}
@@ -1736,7 +1730,7 @@ inline bool wlpdstm::TxMixinv::ShouldAbortWrite(WriteLock *write_lock, unsigned 
 	
 	WriteLock lock_value = (WriteLock)atomic_load_no_barrier(write_lock);
 	
-	if(lock_value != WRITE_LOCK_CLEAR) {
+	if(lock_value != WRITE_LOCK_CLEAR && lock_value != WRITE_LOCK_COMMIT) {
 		//TLSTM
 		for(int s = 0; s < specdepth; s++){
 			WriteLogEntry* log_entry = (WriteLogEntry*)atomic_load_acquire(&prog_thread[lock_value].store_vector[s][address_index]);
