@@ -1399,7 +1399,7 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 	unsigned address_index = map_address_to_index(address);
 
 	if(serial > prog_thread[prog_thread_id].last_completed_task+1){
-		if(address < (Word *)0xff){
+		if(address < (Word *)0xffff){
 			//printf("inconsistent read at %p on task %d\n", address, serial);
 			//if it's a speculative task we have an inconsistent read
 			stats.IncrementStatistics(Statistics::ABORT_READ_VALIDATE);
@@ -1999,6 +1999,7 @@ inline void wlpdstm::TxMixinv::AbortEarlySpecReads(unsigned address_index){
 		if(atomic_load_acquire(&prog_thread[prog_thread_id].load_vector[i & (specdepth - 1)][address_index]) == 1){
 			//printf("found early spec readers\n");
 			for(int j=i; j < prog_thread[prog_thread_id].next_task; j++){
+				stats.IncrementStatistics(Statistics::ABORT_SPEC_READERS);
 				//printf("abortearlyspecread %d index %d value %d\n", j, j%specdepth, prog_thread[prog_thread_id].aborted[j % specdepth]);
 				//prog_thread[prog_thread_id].aborted[j & (specdepth - 1)] = true;
 				atomic_store_release(&prog_thread[prog_thread_id].aborted[j % specdepth], 1);
