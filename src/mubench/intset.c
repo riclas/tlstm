@@ -45,9 +45,9 @@
 #define fetch_and_inc_full(addr) (AO_fetch_and_add1_full((volatile AO_t *)(addr)))
 
 #define START                           BEGIN_TRANSACTION_DESC
-#define START_ID(ID,start,commit,ptid,taskid)                    BEGIN_TRANSACTION_DESC_ID(ID,start,commit,ptid,taskid)
+#define START_ID(ID,start,commit,ptid)                    BEGIN_TRANSACTION_DESC_ID(ID,start,commit,ptid)
 #define START_RO                        START
-#define START_RO_ID(ID,start,commit,ptid,taskid)                 START_ID(ID,start,commit,ptid,taskid)
+#define START_RO_ID(ID,start,commit,ptid)                 START_ID(ID,start,commit,ptid)
 #define LOAD(addr)                      wlpdstm_read_word_desc(tx, (Word *)(addr))
 #define STORE(addr, value)              wlpdstm_write_word_desc(tx, (Word *)addr, (Word)value)
 #define COMMIT                          END_TRANSACTION
@@ -197,13 +197,11 @@ int set_add_seq(intset_t *set, intptr_t val) {
 }
 
 #ifdef MUBENCH_WLPDSTM
-int set_add(intset_t *set, intptr_t val, unsigned start, unsigned commit, unsigned ptid, unsigned task_id, tx_desc *tx)
+int set_add(intset_t *set, intptr_t val, tx_desc *tx)
 {
 	int res = 0;
 
-	START_ID(0, start, commit, ptid, task_id);
 	res = !TMrbtree_insert(tx, set, val, val);
-	COMMIT;
 
 	return res;
 }
@@ -221,13 +219,11 @@ int set_add(intset_t *set, intptr_t val)
 #endif /* MUBENCH_TANGER || MUBENCH_SEQUENTIAL */
 
 #ifdef MUBENCH_WLPDSTM
-int set_remove(intset_t *set, intptr_t val, unsigned start, unsigned commit, unsigned ptid, unsigned task_id, tx_desc *tx)
+int set_remove(intset_t *set, intptr_t val, tx_desc *tx)
 {
 	int res = 0;
 
-    START_ID(1, start, commit, ptid, task_id);
     res = TMrbtree_delete(tx, set, val);
-    COMMIT;
 
 	return res;
 }
@@ -245,13 +241,11 @@ int set_remove(intset_t *set, intptr_t val)
 #endif /* MUBENCH_TANGER || MUBENCH_SEQUENTIAL */
 
 #ifdef MUBENCH_WLPDSTM
-int set_contains(intset_t *set, intptr_t val, unsigned start, unsigned commit, unsigned ptid, unsigned task_id, tx_desc *tx)
+int set_contains(intset_t *set, intptr_t val, tx_desc *tx)
 {
 	int res = 0;
 
-    START_RO_ID(2, start, commit, ptid, task_id);
     res = TMrbtree_contains(tx, set, val);
-    COMMIT;
 
 	return res;
 }
@@ -662,7 +656,7 @@ void task_threadpool(void *data){
 }
 */
 void* task_threads(void *data){
-  int serial, val, last = -1;
+  int serial = 0, val, last = -1;
   task_data_t *d = (task_data_t *)data;
 
   /* init thread */
@@ -674,25 +668,25 @@ void* task_threads(void *data){
   barrier_cross(d->barrier);
 
 #ifdef MUBENCH_WLPDSTM
-  while(*d->next_serial < NUM_OPS - 1 && AO_load_full(&stop) == 0){
+  while(serial < NUM_OPS && AO_load_full(&stop) == 0){
 #else
   while (stop == 0) {
 #endif /* MUBENCH_WLPDSTM */
 
-  	serial = fetch_and_inc_full(d->next_serial);
+  	START_ID(0, 1, 1, d->ptid);
 
 	if (d->ops[serial] < d->update) {
 	  if (last < 0) {
 		/* Add random value */
 		val = (rand_r(&d->seed) % d->range) + 1;
-		if (set_add(d->set, val, 1, 1, d->ptid, serial TM_ARG_LAST)) {
+		if (set_add(d->set, val TM_ARG_LAST)) {
 		  d->diff++;
 		  last = val;
 		}
 		d->nb_add++;
 	  } else {
 		/* Remove last value */
-		if (set_remove(d->set, last, 1, 1, d->ptid, serial TM_ARG_LAST))
+		if (set_remove(d->set, last TM_ARG_LAST))
 		  d->diff--;
 		d->nb_remove++;
 		last = -1;
@@ -700,10 +694,12 @@ void* task_threads(void *data){
 	} else {
 	  /* Look for random value */
 	  val = (rand_r(&d->seed) % d->range) + 1;
-	  if (set_contains(d->set, val, 1, 1, d->ptid, serial TM_ARG_LAST))
+	  if (set_contains(d->set, val TM_ARG_LAST))
 		d->nb_found++;
 	  d->nb_contains++;
 	}
+
+	COMMIT;
   }
 
   //d->nb_aborts = aborts;
@@ -749,10 +745,9 @@ void* task_matrix(void *data){
 
     while (AO_load_full(&stop) == 0 && !end) {
 
-    	serial = fetch_and_inc_full(d->next_serial);
-    	line = d->ops[serial];
+		START_ID(0,1,1,0);
 
-		START_ID(0,1,1,0,serial);
+		line = d->ops[serial];
 
 		for(i = 0; i < d->width; i++){
 			v1 = TM_SHARED_READ(d->matrix[line][i]);

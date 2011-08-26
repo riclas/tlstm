@@ -63,7 +63,7 @@ extern "C" {
 
 	// start/end tx
 	void wlpdstm_start_tx_desc(tx_desc *tx);
-	void wlpdstm_start_tx_id_desc(tx_desc *tx, int lexical_tx_id, unsigned start, unsigned commit, unsigned ptid, unsigned taskid);
+	unsigned wlpdstm_start_tx_id_desc(tx_desc *tx, int lexical_tx_id, unsigned start, unsigned commit, unsigned ptid);
 
 	LONG_JMP_BUF *wlpdstm_get_long_jmp_buf_desc(tx_desc *tx);
 

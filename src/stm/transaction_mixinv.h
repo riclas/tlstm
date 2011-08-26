@@ -228,7 +228,7 @@ namespace wlpdstm {
 		/**
 		 * Start a transaction.
 		 */
-		void TxStart(int lex_tx_id = NO_LEXICAL_TX, bool start_tx = true, bool commit = true, unsigned thread_id = 0, unsigned task_id=0);
+		unsigned TxStart(int lex_tx_id = NO_LEXICAL_TX, bool start_tx = true, bool commit = true, unsigned thread_id = 0);
 
 		/**
 		 * Try to commit a transaction. Return 0 when commit is successful, reason for not succeeding otherwise.
@@ -806,17 +806,14 @@ inline wlpdstm::VersionLock *wlpdstm::TxMixinv::map_write_lock_to_read_lock(Writ
 // main algorithm start //
 //////////////////////////
 
-inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit, unsigned thread_id, unsigned task_id) {
+inline unsigned wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit, unsigned thread_id) {
 	prog_thread_id = thread_id;
 
 	//if it is not an aborted task we give it a new serial
 	if(!rolled_back){
 		//while(prog_thread[prog_thread_id].next_task - prog_thread[prog_thread_id].last_commited_task > specdepth);
 
-		serial = task_id;
-
-		if(serial+1 > prog_thread[prog_thread_id].next_task)
-			prog_thread[prog_thread_id].next_task = serial+1;
+		serial = fetch_and_inc_full(&prog_thread[prog_thread_id].next_task);
 
 		//serial = prog_thread[prog_thread_id].next_task++;
 		serial_index = serial & (specdepth - 1);
@@ -903,6 +900,8 @@ inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit
 #ifdef SIGNALING
 	ClearSignals();
 #endif /* SIGNALING */	
+
+	return serial;
 }
 
 inline Word wlpdstm::TxMixinv::IncrementCommitTs() {
@@ -1404,7 +1403,7 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 		if(address < (Word *)0xffff){
 			//printf("inconsistent read at %p on task %d\n", address, serial);
 			//if it's a speculative task we have an inconsistent read
-			stats.IncrementStatistics(Statistics::ABORT_READ_VALIDATE);
+			stats.IncrementStatistics(Statistics::ABORT_INCONSISTENT_READ);
 			IncrementReadAbortStats();
 			//printf("1398\n");
 			Rollback(serial);
@@ -1417,8 +1416,8 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 			stats.IncrementStatistics(Statistics::ABORT_SPEC_READERS);
 
 			//printf("987\n");
-			Rollback(serial);
-			TxRestart(RESTART_VALIDATION);
+			Rollback();
+			TxRestart(RESTART_EXTERNAL);
 		}
 		speculative_task = false;
 	}
@@ -1565,7 +1564,7 @@ inline bool wlpdstm::TxMixinv::ValidateCommit(unsigned s) {
 				WriteLock *write_lock = map_read_lock_to_write_lock(entry.read_lock);
 				WriteLock lock_value = (WriteLock)atomic_load_no_barrier(write_lock);
 				
-				if(lock_value == prog_thread_id) {
+				if(lock_value == prog_thread_id || lock_value == WRITE_LOCK_CLEAR) {
 					continue;
 				}
 			}
@@ -1611,7 +1610,14 @@ inline bool wlpdstm::TxMixinv::Extend() {
 #endif /* TS_EXTEND_STATS */
 		return true;
 	}
-	
+
+	if(atomic_load_acquire(&prog_thread[prog_thread_id].aborted[serial_index]) == 1){
+		stats.IncrementStatistics(Statistics::ABORT_SPEC_READERS);
+
+		Rollback();
+		TxRestart(RESTART_EXTERNAL);
+	}
+
 #ifdef TS_EXTEND_STATS
 	stats.IncrementStatistics(Statistics::EXTEND_FAILURE);
 #endif /* TS_EXTEND_STATS */
