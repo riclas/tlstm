@@ -45,14 +45,15 @@
 #define fetch_and_inc_full(addr) (AO_fetch_and_add1_full((volatile AO_t *)(addr)))
 
 #define START                           BEGIN_TRANSACTION_DESC
-#define START_ID(ID,start,commit,ptid)                    BEGIN_TRANSACTION_DESC_ID(ID,start,commit,ptid)
+#define START_ID(ID,start,commit)       BEGIN_TRANSACTION_DESC_ID(ID,start,commit)
 #define START_RO                        START
-#define START_RO_ID(ID,start,commit,ptid)                 START_ID(ID,start,commit,ptid)
+#define START_RO_ID(ID,start,commit)    START_ID(ID,start,commit)
 #define LOAD(addr)                      wlpdstm_read_word_desc(tx, (Word *)(addr))
 #define STORE(addr, value)              wlpdstm_write_word_desc(tx, (Word *)addr, (Word)value)
 #define COMMIT                          END_TRANSACTION
 #define MALLOC(size)                    wlpdstm_tx_malloc_desc(tx, size)
 #define FREE(addr, size)                wlpdstm_tx_free_desc(tx, addr, size)
+#define INC_SERIAL(ptid)                serial = wlpdstm_inc_serial(tx, ptid)
 
 #elif defined MUBENCH_TANGER
 
@@ -201,7 +202,9 @@ int set_add(intset_t *set, intptr_t val, tx_desc *tx)
 {
 	int res = 0;
 
+	START_ID(0, 1, 1);
 	res = !TMrbtree_insert(tx, set, val, val);
+	COMMIT;
 
 	return res;
 }
@@ -223,7 +226,9 @@ int set_remove(intset_t *set, intptr_t val, tx_desc *tx)
 {
 	int res = 0;
 
+	START_ID(0, 1, 1);
     res = TMrbtree_delete(tx, set, val);
+	COMMIT;
 
 	return res;
 }
@@ -245,7 +250,9 @@ int set_contains(intset_t *set, intptr_t val, tx_desc *tx)
 {
 	int res = 0;
 
+	START_ID(0, 1, 1);
     res = TMrbtree_contains(tx, set, val);
+	COMMIT;
 
 	return res;
 }
@@ -673,7 +680,7 @@ void* task_threads(void *data){
   while (stop == 0) {
 #endif /* MUBENCH_WLPDSTM */
 
-  	START_ID(0, 1, 1, d->ptid);
+	INC_SERIAL(d->ptid);
 
 	if (d->ops[serial] < d->update) {
 	  if (last < 0) {
@@ -686,8 +693,9 @@ void* task_threads(void *data){
 		d->nb_add++;
 	  } else {
 		/* Remove last value */
-		if (set_remove(d->set, last TM_ARG_LAST))
+		if (set_remove(d->set, last TM_ARG_LAST)){
 		  d->diff--;
+		}
 		d->nb_remove++;
 		last = -1;
 	  }
@@ -699,7 +707,6 @@ void* task_threads(void *data){
 	  d->nb_contains++;
 	}
 
-	COMMIT;
   }
 
   //d->nb_aborts = aborts;
@@ -745,9 +752,11 @@ void* task_matrix(void *data){
 
     while (AO_load_full(&stop) == 0 && !end) {
 
-		START_ID(0,1,1,0);
+    	INC_SERIAL(0);
 
 		line = d->ops[serial];
+
+		START_ID(0,1,1);
 
 		for(i = 0; i < d->width; i++){
 			v1 = TM_SHARED_READ(d->matrix[line][i]);
@@ -1126,7 +1135,7 @@ int main(int argc, char **argv)
 	  nb_contains += data[i*nb_tasks + j].nb_contains;
 	  nb_found += data[i*nb_tasks + j].nb_found;
 	  size += data[i*nb_tasks + j].diff;
-	  size += data[i*nb_tasks + j].diff;
+	  //printf("%d\n", data[i*nb_tasks + j].diff);
  	}
     printf("Thread %d\n", i);
     printf("  #add        : %lu\n", nb_add);

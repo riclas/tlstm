@@ -22,7 +22,7 @@ int wlpdstm::TxMixinv::specdepth;
 
 wlpdstm::TxMixinv::ProgramThread wlpdstm::TxMixinv::prog_thread[MAX_THREADS];
 
-//bool wlpdstm::TxMixinv::sigsegv_caught;
+//int wlpdstm::TxMixinv::serial;
 
 CACHE_LINE_ALIGNED wlpdstm::PaddedBool wlpdstm::TxMixinv::synchronization_in_progress;
 

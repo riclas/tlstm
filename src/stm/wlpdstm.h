@@ -63,7 +63,7 @@ extern "C" {
 
 	// start/end tx
 	void wlpdstm_start_tx_desc(tx_desc *tx);
-	unsigned wlpdstm_start_tx_id_desc(tx_desc *tx, int lexical_tx_id, unsigned start, unsigned commit, unsigned ptid);
+	void wlpdstm_start_tx_id_desc(tx_desc *tx, int lexical_tx_id, unsigned start, unsigned commit);
 
 	LONG_JMP_BUF *wlpdstm_get_long_jmp_buf_desc(tx_desc *tx);
 
@@ -86,6 +86,8 @@ extern "C" {
 	void *wlpdstm_tx_malloc_desc(tx_desc *tx, size_t size);
 
 	void wlpdstm_tx_free_desc(tx_desc *tx, void *ptr, size_t size);
+
+	unsigned wlpdstm_inc_serial(tx_desc *tx, unsigned ptid);
 
 	void wlpdstm_print_stats();
 

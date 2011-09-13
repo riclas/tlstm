@@ -34,8 +34,8 @@ namespace wlpdstm {
 	// A shortcut used for accessing transaction in progress.
 	class CurrentTransaction : public Tls<Transaction, true, true> {
 		public:
-			static void TxStart(int lexical_tx_id = NO_LEXICAL_TX, bool start_tx = true, bool commit = true, int thread_id = 0) {
-				Tls<Transaction, true, true>::Get()->TxStart(lexical_tx_id, start_tx, commit, thread_id);
+			static void TxStart(int lexical_tx_id = NO_LEXICAL_TX, bool start_tx = true, bool commit = true) {
+				Tls<Transaction, true, true>::Get()->TxStart(lexical_tx_id, start_tx, commit);
 			}
 
 			static LONG_JMP_BUF *GetLongJmpBuf() {

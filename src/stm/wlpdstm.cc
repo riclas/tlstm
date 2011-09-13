@@ -29,10 +29,6 @@ void wlpdstm_start_tx() {
 	wlpdstm::CurrentTransaction::TxStart();
 }
 
-void wlpdstm_start_tx_ptid(int prog_thread_id) {
-	wlpdstm::CurrentTransaction::TxStart(NO_LEXICAL_TX, true, true, prog_thread_id);
-}
-
 void wlpdstm_start_tx_id(int lexical_tx_id) {
 	wlpdstm::CurrentTransaction::TxStart(lexical_tx_id);
 }
@@ -87,8 +83,8 @@ LONG_JMP_BUF *wlpdstm_get_long_jmp_buf_desc(tx_desc *tx) {
 	return &((wlpdstm::Transaction *)tx)->start_buf;
 }
 
-unsigned wlpdstm_start_tx_id_desc(tx_desc *tx, int lexical_tx_id, unsigned start, unsigned commit, unsigned ptid) {
-	return ((wlpdstm::Transaction *)tx)->TxStart(lexical_tx_id, start, commit, ptid);
+void wlpdstm_start_tx_id_desc(tx_desc *tx, int lexical_tx_id, unsigned start, unsigned commit) {
+	((wlpdstm::Transaction *)tx)->TxStart(lexical_tx_id, start, commit);
 }
 
 void wlpdstm_commit_tx_desc(tx_desc *tx) {
@@ -123,6 +119,10 @@ void wlpdstm_tx_free_desc(tx_desc *tx, void *ptr, size_t size) {
 
 void *wlpdstm_tx_malloc_desc(tx_desc *tx, size_t size) {
 	return ((wlpdstm::Transaction *)tx)->TxMalloc(size);
+}
+
+Word wlpdstm_inc_serial(tx_desc *tx, unsigned ptid) {
+	return ((wlpdstm::Transaction *)tx)->IncSerial(ptid);
 }
 
 void wlpdstm_print_stats() {

@@ -225,10 +225,12 @@ namespace wlpdstm {
 		
 		void ThreadInit();
 
+		unsigned IncSerial(unsigned ptid);
+
 		/**
 		 * Start a transaction.
 		 */
-		unsigned TxStart(int lex_tx_id = NO_LEXICAL_TX, bool start_tx = true, bool commit = true, unsigned thread_id = 0);
+		void TxStart(int lex_tx_id = NO_LEXICAL_TX, bool start_tx = true, bool commit = true);
 
 		/**
 		 * Try to commit a transaction. Return 0 when commit is successful, reason for not succeeding otherwise.
@@ -329,9 +331,9 @@ namespace wlpdstm {
 
 		void AbortEarlySpecReads(unsigned address_index);
 
-		void add_to_fw_read_log(unsigned address_index, VersionLock* read_lock, VersionLock version);
+		void add_to_fw_read_log(unsigned address_index, VersionLock* read_lock, VersionLock version, int future_writer);
 
-		bool ActiveWriterAfterThisTask(unsigned address_index);
+		int ActiveWriterAfterThisTask(unsigned address_index);
 
 		int PreviousActiveWriter(unsigned address_index);
 
@@ -806,17 +808,22 @@ inline wlpdstm::VersionLock *wlpdstm::TxMixinv::map_write_lock_to_read_lock(Writ
 // main algorithm start //
 //////////////////////////
 
-inline unsigned wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit, unsigned thread_id) {
-	prog_thread_id = thread_id;
+inline unsigned wlpdstm::TxMixinv::IncSerial(unsigned ptid){
+	prog_thread_id = ptid;
+
+	serial = fetch_and_inc_full(&prog_thread[prog_thread_id].next_task);
+	serial_index = serial & (specdepth - 1);
+
+	return serial;
+}
+
+inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit) {
 
 	//if it is not an aborted task we give it a new serial
 	if(!rolled_back){
 		//while(prog_thread[prog_thread_id].next_task - prog_thread[prog_thread_id].last_commited_task > specdepth);
 
-		serial = fetch_and_inc_full(&prog_thread[prog_thread_id].next_task);
-
 		//serial = prog_thread[prog_thread_id].next_task++;
-		serial_index = serial & (specdepth - 1);
 		//printf("txstart %d %d\n",serial, thread_id);
 
 		//create new transaction state to be shared by all tasks of a transaction
@@ -875,21 +882,7 @@ inline unsigned wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool co
 	// not rolled back yet
 	rolled_back = false;
 
-
 	tx_state.valid_ts = valid_ts;
-
-	//clean load vector
-	for(ReadLog::iterator iter = prog_thread[prog_thread_id].read_log[serial_index].begin();iter.hasNext();iter.next()) {
-		ReadLogEntry &entry = *iter;
-
-		SetLoadVector(entry.address_index, serial_index, 0);
-	}
-
-	//cleanup readlogs
-	prog_thread[prog_thread_id].read_log[serial_index].clear();
-	prog_thread[prog_thread_id].fw_read_log[serial_index].clear();
-
-	write_word_log_mem_pool.clear();
 
 	try_commit = commit;
 
@@ -900,8 +893,6 @@ inline unsigned wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool co
 #ifdef SIGNALING
 	ClearSignals();
 #endif /* SIGNALING */	
-
-	return serial;
 }
 
 inline Word wlpdstm::TxMixinv::IncrementCommitTs() {
@@ -1075,25 +1066,40 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 
 					atomic_store_release(entry.write_lock, WRITE_LOCK_COMMIT);
 
+					int future_writer = ActiveWriterAfterThisTask(entry.address_index);
+
 					//if there is a future active writer for this address we leave its writelock locked
-					if(!ActiveWriterAfterThisTask(entry.address_index)){
-						atomic_store_release(entry.write_lock, WRITE_LOCK_CLEAR);
-					} else {
+					if(future_writer != NONE){
 						atomic_store_release(entry.write_lock, prog_thread_id);
+					} else {
+						atomic_store_release(entry.write_lock, WRITE_LOCK_CLEAR);
 					}
 
 					//add this entry to the forward read logs
-					add_to_fw_read_log(entry.address_index, entry.read_lock, commitVersion);
+					add_to_fw_read_log(entry.address_index, entry.read_lock, commitVersion, future_writer);
 
 					//clean the store vector entry
 					SetStoreVector(entry.address_index, s & (specdepth - 1), NULL);
 				}
 				//clean write log of this task
 				prog_thread[prog_thread_id].write_log[s & (specdepth - 1)].clear();
+				write_word_log_mem_pool.clear();
 			}
 		} else {
 			stats.IncrementStatistics(Statistics::COMMIT_READ_ONLY);
 		}
+
+		//clean load vector
+		for(ReadLog::iterator iter = prog_thread[prog_thread_id].read_log[serial_index].begin();iter.hasNext();iter.next()) {
+			ReadLogEntry &entry = *iter;
+
+			SetLoadVector(entry.address_index, serial_index, 0);
+		}
+
+		//cleanup readlogs
+		prog_thread[prog_thread_id].read_log[serial_index].clear();
+		prog_thread[prog_thread_id].fw_read_log[serial_index].clear();
+
 		//free(tx_state);
 		prog_thread[prog_thread_id].last_commited_task = serial;
 	}
@@ -1178,6 +1184,18 @@ inline void wlpdstm::TxMixinv::Rollback() {
 	}
 
 	prog_thread[prog_thread_id].write_log[serial_index].clear();
+	write_word_log_mem_pool.clear();
+
+	//clean load vector
+	for(ReadLog::iterator iter = prog_thread[prog_thread_id].read_log[serial_index].begin();iter.hasNext();iter.next()) {
+		ReadLogEntry &entry = *iter;
+
+		SetLoadVector(entry.address_index, serial_index, 0);
+	}
+
+	//cleanup readlogs
+	prog_thread[prog_thread_id].read_log[serial_index].clear();
+	prog_thread[prog_thread_id].fw_read_log[serial_index].clear();
 
 #ifdef SUPPORT_LOCAL_WRITES
 	write_local_log.clear();
@@ -1208,7 +1226,7 @@ inline void wlpdstm::TxMixinv::LockMemoryStripe(WriteLock *write_lock, Word *add
 #ifdef DETAILED_STATS
 	stats.IncrementStatistics(Statistics::WRITES);
 #endif /* DETAILED_STATS */
-	
+
 	unsigned address_index = map_address_to_index(address);
 
 	//TLSTM
@@ -1582,7 +1600,7 @@ inline bool wlpdstm::TxMixinv::ValidateCommit(unsigned s) {
 				WriteLock *write_lock = map_read_lock_to_write_lock(entry.read_lock);
 				WriteLock lock_value = (WriteLock)atomic_load_no_barrier(write_lock);
 
-				if(lock_value == prog_thread_id) {
+				if(lock_value == prog_thread_id || lock_value == WRITE_LOCK_CLEAR) {
 					continue;
 				}
 			}
@@ -1595,6 +1613,7 @@ inline bool wlpdstm::TxMixinv::ValidateCommit(unsigned s) {
 }
 
 inline bool wlpdstm::TxMixinv::Extend() {
+
 	unsigned ts = commit_ts.readCurrentTsAcquire();
 	
 	if(Validate()) {
@@ -2005,14 +2024,10 @@ inline void wlpdstm::TxMixinv::RestartCommitTS() {
 }
 
 inline void wlpdstm::TxMixinv::AbortEarlySpecReads(unsigned address_index){
-	int future_writer = prog_thread[prog_thread_id].next_task-1;
+	int future_writer = ActiveWriterAfterThisTask(address_index);
 
-	for(int i = serial+1; i < prog_thread[prog_thread_id].next_task-1; i++){
-		if(atomic_load_acquire(&prog_thread[prog_thread_id].store_vector[i & (specdepth - 1)][address_index])){
-			future_writer = i;
-			break;
-		}
-	}
+	if(future_writer == NONE)
+		future_writer = prog_thread[prog_thread_id].next_task-1;
 
 	for(int i = serial+1; i <= future_writer; i++){
 		if(atomic_load_acquire(&prog_thread[prog_thread_id].load_vector[i & (specdepth - 1)][address_index]) == 1){
@@ -2028,16 +2043,10 @@ inline void wlpdstm::TxMixinv::AbortEarlySpecReads(unsigned address_index){
 	}
 }
 
-inline void wlpdstm::TxMixinv::add_to_fw_read_log(unsigned address_index, VersionLock* read_lock, VersionLock version) {
-	int future_writer = prog_thread[prog_thread_id].next_task-1;
+inline void wlpdstm::TxMixinv::add_to_fw_read_log(unsigned address_index, VersionLock* read_lock, VersionLock version, int future_writer) {
 
-	//we search the future writer of this address
-	for(int i = serial+1; i < prog_thread[prog_thread_id].next_task-1; i++){
-		if(atomic_load_acquire(&prog_thread[prog_thread_id].store_vector[i & (specdepth - 1)][address_index])){
-			future_writer = i;
-			break;
-		}
-	}
+	if(future_writer == NONE)
+		future_writer = prog_thread[prog_thread_id].next_task-1;
 
 	//and add a forward read log entry to all tasks from the present to the future writer
 	for(int i = serial+1; i <= future_writer; i++){
@@ -2050,13 +2059,13 @@ inline void wlpdstm::TxMixinv::add_to_fw_read_log(unsigned address_index, Versio
 	}
 }
 
-inline bool wlpdstm::TxMixinv::ActiveWriterAfterThisTask(unsigned address_index){
+inline int wlpdstm::TxMixinv::ActiveWriterAfterThisTask(unsigned address_index){
 	for(int i = serial+1; i < prog_thread[prog_thread_id].next_task; i++){
 		if(atomic_load_acquire(&prog_thread[prog_thread_id].store_vector[i & (specdepth - 1)][address_index])){
-			return true;
+			return i;
 		}
 	}
-	return false;
+	return NONE;
 }
 
 inline int wlpdstm::TxMixinv::PreviousActiveWriter(unsigned address_index){

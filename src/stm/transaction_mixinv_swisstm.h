@@ -195,10 +195,12 @@ namespace wlpdstm {
 		
 		void ThreadInit();
 
+		unsigned IncSerial(unsigned ptid);
+
 		/**
 		 * Start a transaction.
 		 */
-		void TxStart(int lex_tx_id = NO_LEXICAL_TX, bool start_tx = true, bool commit = true, int thread_id = 0, int task_id=0);
+		void TxStart(int lex_tx_id = NO_LEXICAL_TX, bool start_tx = true, bool commit = true);
 
 		/**
 		 * Try to commit a transaction. Return 0 when commit is successful, reason for not succeeding otherwise.
@@ -513,6 +515,8 @@ namespace wlpdstm {
 		
 		static PaddedBool synchronization_in_progress;
 		
+		static int serial;
+
 #ifdef PRIVATIZATION_QUIESCENCE
 		static volatile Word quiescence_timestamp_array[MAX_THREADS];
 #endif /* PRIVATIZATION_QUIESCENCE */
@@ -612,6 +616,8 @@ inline void wlpdstm::TxMixinv::GlobalInit(int nb_tasks) {
 	
 	InitializeWriteLocks();
 	
+	serial = 0;
+
 #ifdef PRIVATIZATION_QUIESCENCE
 	InitializeQuiescenceTimestamps();
 #elif defined PRIVATIZATION_QUIESCENCE_TREE
@@ -771,7 +777,11 @@ inline wlpdstm::VersionLock *wlpdstm::TxMixinv::map_write_lock_to_read_lock(Writ
 // main algorithm start //
 //////////////////////////
 
-inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit, int thread_id, int task_id) {
+inline unsigned wlpdstm::TxMixinv::IncSerial(unsigned ptid){
+	return fetch_and_inc_full(&serial);
+}
+
+inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit) {
 #ifdef PERFORMANCE_COUNTING
 	perf_cnt_sampling.tx_start();
 
