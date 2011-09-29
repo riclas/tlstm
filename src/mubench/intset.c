@@ -187,6 +187,19 @@ int set_size(intset_t *set)
   }
 
   size = 0;
+  for (n = firstEntry(set); n != NULL; n = successor(n)){
+	size++;
+	printf("%d\n", n->v);
+  }
+
+  return size;
+}
+
+int set_size_noverify(intset_t *set)
+{
+  int size=0;
+  node_t *n;
+
   for (n = firstEntry(set); n != NULL; n = successor(n))
     size++;
 
@@ -226,7 +239,7 @@ int set_remove(intset_t *set, intptr_t val, tx_desc *tx)
 {
 	int res = 0;
 
-	START_ID(0, 1, 1);
+	START_ID(1, 1, 1);
     res = TMrbtree_delete(tx, set, val);
 	COMMIT;
 
@@ -250,7 +263,7 @@ int set_contains(intset_t *set, intptr_t val, tx_desc *tx)
 {
 	int res = 0;
 
-	START_ID(0, 1, 1);
+	START_ID(2, 1, 1);
     res = TMrbtree_contains(tx, set, val);
 	COMMIT;
 
@@ -610,28 +623,35 @@ void barrier_cross(barrier_t *b)
  * STRESS TEST
  * ################################################################### */
 
+typedef struct op {
+	int type;
+	int value;
+} op;
+
 typedef struct task_data {
   unsigned ptid;
-  int range;
-  int update;
   unsigned long nb_add;
   unsigned long nb_remove;
   unsigned long nb_contains;
   unsigned long nb_found;
   int diff;
-  unsigned int seed;
+  int seed;
+  int update;
+  int range;
   intset_t *set;
   int **matrix;
   barrier_t *barrier;
-  int *next_serial;
-  int *ops;
+  op *ops;
   int height;
   int width;
 } task_data_t;
 
+#define ADD 0
+#define REMOVE 1
+#define CONTAINS 2
 //#include "threadpool.c"
 
-#define NUM_OPS (1 << 26)
+#define NUM_OPS (1 << 24)
 //#define TEST_MATRIX_SIZE 4
 /*
 void task_threadpool(void *data){
@@ -663,7 +683,7 @@ void task_threadpool(void *data){
 }
 */
 void* task_threads(void *data){
-  int serial = 0, val, last = -1;
+  int serial = 0;
   task_data_t *d = (task_data_t *)data;
 
   /* init thread */
@@ -673,6 +693,8 @@ void* task_threads(void *data){
 
   /* Wait on barrier */
   barrier_cross(d->barrier);
+  int last = -1;
+  int val;
 
 #ifdef MUBENCH_WLPDSTM
   while(serial < NUM_OPS && AO_load_full(&stop) == 0){
@@ -681,34 +703,54 @@ void* task_threads(void *data){
 #endif /* MUBENCH_WLPDSTM */
 
 	INC_SERIAL(d->ptid);
+/*
+	val = rand_r(&d->seed) % 100;
 
-	if (d->ops[serial] < d->update) {
-	  if (last < 0) {
-		/* Add random value */
-		val = (rand_r(&d->seed) % d->range) + 1;
-		if (set_add(d->set, val TM_ARG_LAST)) {
+	if (val < d->update) {
+      if (last < 0) {
+        // Add random value
+        val = (rand_r(&d->seed) % d->range) + 1;
+        if (set_add(d->set, val TM_ARG_LAST)) {
+          d->diff++;
+          last = val;
+        }
+        d->nb_add++;
+      } else {
+        // Remove last value
+        if (set_remove(d->set, last TM_ARG_LAST))
+          d->diff--;
+        d->nb_remove++;
+        last = -1;
+      }
+    } else {
+      // Look for random value
+      val = (rand_r(&d->seed) % d->range) + 1;
+      if (set_contains(d->set, val TM_ARG_LAST))
+        d->nb_found++;
+      d->nb_contains++;
+    }*/
+	if (d->ops[serial].type == ADD) {
+	  // Add random value
+	  if (set_add(d->set, d->ops[serial].value TM_ARG_LAST)) {
 		  d->diff++;
-		  last = val;
-		}
-		d->nb_add++;
-	  } else {
-		/* Remove last value */
-		if (set_remove(d->set, last TM_ARG_LAST)){
-		  d->diff--;
-		}
-		d->nb_remove++;
-		last = -1;
 	  }
+	  d->nb_add++;
+	} else if(d->ops[serial].type == REMOVE){
+	  // Remove last value
+      if (set_remove(d->set, d->ops[serial].value TM_ARG_LAST)){
+	    d->diff--;
+	  }
+	  d->nb_remove++;
 	} else {
-	  /* Look for random value */
-	  val = (rand_r(&d->seed) % d->range) + 1;
-	  if (set_contains(d->set, val TM_ARG_LAST))
+	  // Look for random value
+	  if (set_contains(d->set, d->ops[serial].value TM_ARG_LAST))
 		d->nb_found++;
 	  d->nb_contains++;
 	}
 
   }
 
+  printf("finished at serial %d diff %d val %d op-2 %d op-1 %d op %d next op %d\n",serial, d->diff, d->ops[serial].value, d->ops[serial-2].type, d->ops[serial-1].type, d->ops[serial].type, d->ops[serial+1].type);
   //d->nb_aborts = aborts;
 
   TM_THREAD_EXIT();
@@ -754,7 +796,7 @@ void* task_matrix(void *data){
 
     	INC_SERIAL(0);
 
-		line = d->ops[serial];
+		line = d->ops[serial].value;
 
 		START_ID(0,1,1);
 
@@ -903,7 +945,7 @@ int main(int argc, char **argv)
   int update = DEFAULT_UPDATE;
   int height = 10;
   int width = 10;
-  int *ops = malloc(NUM_OPS * sizeof(int));
+  op **ops;
   //int **matriz;
 
   while(1) {
@@ -1016,6 +1058,10 @@ int main(int argc, char **argv)
     perror("malloc");
     exit(1);
   }
+  if((ops = (op**)malloc(nb_threads * sizeof(op*))) == NULL){
+	perror("malloc");
+	exit(1);
+  }
 /*
   matriz = malloc(height * sizeof(int *));
 
@@ -1048,8 +1094,34 @@ int main(int argc, char **argv)
   size = set_size(set);
   printf("Set size     : %d\n", size);
 
-  for(i = 0; i < NUM_OPS; i++){
-	  ops[i] = rand() % 100;
+  int add = 0;
+  int value = (rand() % range) + 1;
+
+  for(i = 0; i < nb_threads; i++){
+	  if((ops[i] = (op*) malloc(NUM_OPS * sizeof(op))) == NULL){
+	    perror("malloc");
+	    exit(1);
+	  }
+	  for(j = 0; j < NUM_OPS; j++){
+		  int aux = rand() % 100;
+		  if(aux < update){
+			  //when "even" add a node
+			  if(add % 2 == 0){
+				  value = (rand() % range) + 1;
+				  ops[i][j].type = ADD;
+				  ops[i][j].value = value;
+				  add = (add + 1) % 1001;
+			  //when "odd" remove a node
+			  } else {
+				  ops[i][j].type = REMOVE;
+				  ops[i][j].value = value;
+				  add = (add + 1) % 1001;
+			  }
+		  } else {
+			  ops[i][j].type = CONTAINS;
+			  ops[i][j].value = (rand() % range) + 1;
+		  }
+	  }
   }
 
   /* Access set from all threads */
@@ -1057,26 +1129,23 @@ int main(int argc, char **argv)
   pthread_attr_init(&attr);
   pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
   for (i = 0; i < nb_threads; i++) {
-	  int *next_serial = (int*)calloc(1,sizeof(int));
-
 	  for(j = 0; j < nb_tasks; j++){
 		int index = i*nb_tasks + j;
 
 		printf("Creating task %d of program thread %d \n", j, i);
-		data[index].range = range;
-		data[index].update = update;
 		data[index].nb_add = 0;
 		data[index].nb_remove = 0;
 		data[index].nb_contains = 0;
 		data[index].nb_found = 0;
 		data[index].diff = 0;
-		data[index].seed = rand();
 		data[index].set = set;
 		data[index].barrier = &barrier;
 		data[index].ptid = i;
+		data[index].seed = rand();
+		data[index].range = range;
+		data[index].update = update;
 		//data[index].matrix = matriz;
-		data[index].next_serial = next_serial;
-		data[index].ops = ops;
+		data[index].ops = ops[i];
 		data[index].height = height;
 		data[index].width = width;
 
