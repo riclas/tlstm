@@ -22,8 +22,6 @@ int wlpdstm::TxMixinv::specdepth;
 
 wlpdstm::TxMixinv::ProgramThread wlpdstm::TxMixinv::prog_thread[MAX_THREADS];
 
-//int wlpdstm::TxMixinv::serial;
-
 CACHE_LINE_ALIGNED wlpdstm::PaddedBool wlpdstm::TxMixinv::synchronization_in_progress;
 
 #ifdef PRIVATIZATION_QUIESCENCE

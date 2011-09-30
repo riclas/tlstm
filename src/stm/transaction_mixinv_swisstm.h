@@ -438,7 +438,8 @@ namespace wlpdstm {
 		// local
 		uintptr_t stack_high;
 #endif /* STACK_PROTECT */
-		
+		int serial;
+
 		// local
 		ReadLog read_log;
 		
@@ -515,8 +516,6 @@ namespace wlpdstm {
 		
 		static PaddedBool synchronization_in_progress;
 		
-		static int serial;
-
 #ifdef PRIVATIZATION_QUIESCENCE
 		static volatile Word quiescence_timestamp_array[MAX_THREADS];
 #endif /* PRIVATIZATION_QUIESCENCE */
@@ -616,8 +615,6 @@ inline void wlpdstm::TxMixinv::GlobalInit(int nb_tasks) {
 	
 	InitializeWriteLocks();
 	
-	serial = 0;
-
 #ifdef PRIVATIZATION_QUIESCENCE
 	InitializeQuiescenceTimestamps();
 #elif defined PRIVATIZATION_QUIESCENCE_TREE
@@ -681,7 +678,9 @@ inline void wlpdstm::TxMixinv::InitializeSignaling() {
 
 inline void wlpdstm::TxMixinv::ThreadInit() {
 	aborted_externally = false;
-	
+
+	serial = 0;
+
 #ifdef MM_EPOCH
 	InitLastObservedTs();
 #endif /* MM_EPOCH */

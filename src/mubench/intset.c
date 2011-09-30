@@ -189,7 +189,7 @@ int set_size(intset_t *set)
   size = 0;
   for (n = firstEntry(set); n != NULL; n = successor(n)){
 	size++;
-	printf("%d\n", n->v);
+	//printf("%d\n", n->v);
   }
 
   return size;
@@ -635,7 +635,7 @@ typedef struct task_data {
   unsigned long nb_contains;
   unsigned long nb_found;
   int diff;
-  int seed;
+  unsigned int seed;
   int update;
   int range;
   intset_t *set;
@@ -651,7 +651,7 @@ typedef struct task_data {
 #define CONTAINS 2
 //#include "threadpool.c"
 
-#define NUM_OPS (1 << 24)
+#define NUM_OPS (1 << 25)
 //#define TEST_MATRIX_SIZE 4
 /*
 void task_threadpool(void *data){
@@ -693,8 +693,8 @@ void* task_threads(void *data){
 
   /* Wait on barrier */
   barrier_cross(d->barrier);
-  int last = -1;
-  int val;
+  //int last = -1;
+  //int val;
 
 #ifdef MUBENCH_WLPDSTM
   while(serial < NUM_OPS && AO_load_full(&stop) == 0){
@@ -747,11 +747,9 @@ void* task_threads(void *data){
 		d->nb_found++;
 	  d->nb_contains++;
 	}
-
   }
 
-  printf("finished at serial %d diff %d val %d op-2 %d op-1 %d op %d next op %d\n",serial, d->diff, d->ops[serial].value, d->ops[serial-2].type, d->ops[serial-1].type, d->ops[serial].type, d->ops[serial+1].type);
-  //d->nb_aborts = aborts;
+  //printf("finished at serial %d diff %d val %d op-2 %d op-1 %d op %d next op %d\n",serial, d->diff, d->ops[serial].value, d->ops[serial-2].type, d->ops[serial-1].type, d->ops[serial].type, d->ops[serial+1].type);
 
   TM_THREAD_EXIT();
 
@@ -1094,14 +1092,14 @@ int main(int argc, char **argv)
   size = set_size(set);
   printf("Set size     : %d\n", size);
 
-  int add = 0;
-  int value = (rand() % range) + 1;
+  int value = 0;
 
   for(i = 0; i < nb_threads; i++){
 	  if((ops[i] = (op*) malloc(NUM_OPS * sizeof(op))) == NULL){
 	    perror("malloc");
 	    exit(1);
 	  }
+	  int add = 0;
 	  for(j = 0; j < NUM_OPS; j++){
 		  int aux = rand() % 100;
 		  if(aux < update){
@@ -1110,12 +1108,12 @@ int main(int argc, char **argv)
 				  value = (rand() % range) + 1;
 				  ops[i][j].type = ADD;
 				  ops[i][j].value = value;
-				  add = (add + 1) % 1001;
+				  add = (add + 1) % 501;
 			  //when "odd" remove a node
 			  } else {
 				  ops[i][j].type = REMOVE;
 				  ops[i][j].value = value;
-				  add = (add + 1) % 1001;
+				  add = (add + 1) % 501;
 			  }
 		  } else {
 			  ops[i][j].type = CONTAINS;
