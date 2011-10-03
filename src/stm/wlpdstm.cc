@@ -121,7 +121,7 @@ void *wlpdstm_tx_malloc_desc(tx_desc *tx, size_t size) {
 	return ((wlpdstm::Transaction *)tx)->TxMalloc(size);
 }
 
-Word wlpdstm_inc_serial(tx_desc *tx, unsigned ptid) {
+unsigned wlpdstm_inc_serial(tx_desc *tx, unsigned ptid) {
 	return ((wlpdstm::Transaction *)tx)->IncSerial(ptid);
 }
 

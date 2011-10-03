@@ -651,7 +651,7 @@ typedef struct task_data {
 #define CONTAINS 2
 //#include "threadpool.c"
 
-#define NUM_OPS (1 << 25)
+#define NUM_OPS (1 << 26)
 //#define TEST_MATRIX_SIZE 4
 /*
 void task_threadpool(void *data){
@@ -1108,12 +1108,12 @@ int main(int argc, char **argv)
 				  value = (rand() % range) + 1;
 				  ops[i][j].type = ADD;
 				  ops[i][j].value = value;
-				  add = (add + 1) % 501;
+				  add = (add + 1) % 2001;
 			  //when "odd" remove a node
 			  } else {
 				  ops[i][j].type = REMOVE;
 				  ops[i][j].value = value;
-				  add = (add + 1) % 501;
+				  add = (add + 1) % 2001;
 			  }
 		  } else {
 			  ops[i][j].type = CONTAINS;

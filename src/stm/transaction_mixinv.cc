@@ -18,7 +18,7 @@ wlpdstm::TxMixinv *wlpdstm::TxMixinv::transactions[MAX_THREADS];
 
 Word wlpdstm::TxMixinv::thread_count;
 
-int wlpdstm::TxMixinv::specdepth;
+//int wlpdstm::TxMixinv::specdepth;
 
 wlpdstm::TxMixinv::ProgramThread wlpdstm::TxMixinv::prog_thread[MAX_THREADS];
 
