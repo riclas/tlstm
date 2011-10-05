@@ -26,7 +26,7 @@ extern "C" {
 	// initialization
 	void wlpdstm_global_init(int nb_tasks);
 
-	void wlpdstm_thread_init();
+	void wlpdstm_thread_init(int ptid);
 
 	// start/end tx
 	void wlpdstm_start_tx() __attribute__ ((noinline));
@@ -63,7 +63,7 @@ extern "C" {
 
 	// start/end tx
 	void wlpdstm_start_tx_desc(tx_desc *tx);
-	void wlpdstm_start_tx_id_desc(tx_desc *tx, int lexical_tx_id, unsigned start, unsigned commit);
+	void wlpdstm_start_tx_id_desc(tx_desc *tx, int lexical_tx_id, unsigned start, unsigned commit, int serial);
 
 	LONG_JMP_BUF *wlpdstm_get_long_jmp_buf_desc(tx_desc *tx);
 

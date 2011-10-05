@@ -218,14 +218,14 @@ namespace wlpdstm {
 		static void InitializeSignaling();
 #endif /* SIGNALING */
 		
-		void ThreadInit();
+		void ThreadInit(int ptid);
 
 		unsigned IncSerial(unsigned ptid);
 
 		/**
 		 * Start a transaction.
 		 */
-		void TxStart(int lex_tx_id = NO_LEXICAL_TX, bool start_tx = true, bool commit = true);
+		void TxStart(int lex_tx_id = NO_LEXICAL_TX, bool start_tx = true, bool commit = true, int serial=0);
 
 		/**
 		 * Try to commit a transaction. Return 0 when commit is successful, reason for not succeeding otherwise.
@@ -719,10 +719,10 @@ inline void wlpdstm::TxMixinv::InitializeSignaling() {
 }
 #endif /* SIGNALING */
 
-inline void wlpdstm::TxMixinv::ThreadInit() {
+inline void wlpdstm::TxMixinv::ThreadInit(int ptid) {
 	aborted_externally = false;
 
-	serial = 0;
+	prog_thread_id = ptid;
 
 #ifdef MM_EPOCH
 	InitLastObservedTs();
@@ -828,7 +828,7 @@ inline unsigned wlpdstm::TxMixinv::IncSerial(unsigned ptid){
 	return serial;
 }
 
-inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit) {
+inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit, int new_serial) {
 #ifdef PERFORMANCE_COUNTING
 	perf_cnt_sampling.tx_start();
 
@@ -837,6 +837,8 @@ inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit
 	}
 #endif /* PERFORMANCE_COUNTING */	
 	
+	serial = new_serial;
+
 	atomic_store_full(&tx_status, (Word)TX_EXECUTING);
 	
 	if(Synchronize()) {
@@ -894,7 +896,7 @@ inline Word wlpdstm::TxMixinv::IncrementCommitTs() {
 }
 
 inline void wlpdstm::TxMixinv::TxCommit() {
-	while(prog_thread[prog_thread_id].last_completed_task != serial-1);
+	while((int)atomic_load_acquire(&prog_thread[prog_thread_id].last_completed_task) != serial-1);
 
 	RestartCause ret = TxTryCommit();
 
@@ -987,10 +989,8 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 		stats.IncrementStatistics(Statistics::COMMIT_READ_ONLY);
 	}
 
-	prog_thread[prog_thread_id].last_commited_task = serial;
-
-	prog_thread[prog_thread_id].last_completed_task = serial;
-
+	//prog_thread[prog_thread_id].last_completed_task = serial;
+	atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, serial);
 	atomic_store_release(&tx_status, TX_COMMITTED);
 		
 #ifdef PRIVATIZATION_QUIESCENCE

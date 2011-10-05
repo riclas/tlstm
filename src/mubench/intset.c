@@ -45,9 +45,9 @@
 #define fetch_and_inc_full(addr) (AO_fetch_and_add1_full((volatile AO_t *)(addr)))
 
 #define START                           BEGIN_TRANSACTION_DESC
-#define START_ID(ID,start,commit)       BEGIN_TRANSACTION_DESC_ID(ID,start,commit)
+#define START_ID(ID,start,commit,serial)       BEGIN_TRANSACTION_DESC_ID(ID,start,commit,serial)
 #define START_RO                        START
-#define START_RO_ID(ID,start,commit)    START_ID(ID,start,commit)
+#define START_RO_ID(ID,start,commit,serial)    START_ID(ID,start,commit,serial)
 #define LOAD(addr)                      wlpdstm_read_word_desc(tx, (Word *)(addr))
 #define STORE(addr, value)              wlpdstm_write_word_desc(tx, (Word *)addr, (Word)value)
 #define COMMIT                          END_TRANSACTION
@@ -121,7 +121,7 @@ static volatile int stop;
 #define TM_SHUTDOWN()                   /* nothing */
 #endif /* COLLECT_STATS */
 
-#define TM_THREAD_ENTER()               wlpdstm_thread_init(); \
+#define TM_THREAD_ENTER(ptid)               wlpdstm_thread_init(ptid); \
 										tx_desc *tx = wlpdstm_get_tx_desc()
 
 #define TM_THREAD_EXIT()                /* nothing */
@@ -211,11 +211,11 @@ int set_add_seq(intset_t *set, intptr_t val) {
 }
 
 #ifdef MUBENCH_WLPDSTM
-int set_add(intset_t *set, intptr_t val, tx_desc *tx)
+int set_add(intset_t *set, intptr_t val, int serial, tx_desc *tx)
 {
 	int res = 0;
 
-	START_ID(0, 1, 1);
+	START_ID(0, 1, 1, serial);
 	res = !TMrbtree_insert(tx, set, val, val);
 	COMMIT;
 
@@ -235,11 +235,11 @@ int set_add(intset_t *set, intptr_t val)
 #endif /* MUBENCH_TANGER || MUBENCH_SEQUENTIAL */
 
 #ifdef MUBENCH_WLPDSTM
-int set_remove(intset_t *set, intptr_t val, tx_desc *tx)
+int set_remove(intset_t *set, intptr_t val, int serial, tx_desc *tx)
 {
 	int res = 0;
 
-	START_ID(1, 1, 1);
+	START_ID(1, 1, 1, serial);
     res = TMrbtree_delete(tx, set, val);
 	COMMIT;
 
@@ -259,12 +259,13 @@ int set_remove(intset_t *set, intptr_t val)
 #endif /* MUBENCH_TANGER || MUBENCH_SEQUENTIAL */
 
 #ifdef MUBENCH_WLPDSTM
-int set_contains(intset_t *set, intptr_t val, tx_desc *tx)
+int set_contains(intset_t *set, intptr_t val, int serial, tx_desc *tx)
 {
 	int res = 0;
 
-	START_ID(2, 1, 1);
+	START_ID(2, 1, 1, serial);
     res = TMrbtree_contains(tx, set, val);
+    res = TMrbtree_contains(tx, set, val+1);
 	COMMIT;
 
 	return res;
@@ -630,6 +631,8 @@ typedef struct op {
 
 typedef struct task_data {
   unsigned ptid;
+  unsigned first_serial;
+  unsigned nb_tasks;
   unsigned long nb_add;
   unsigned long nb_remove;
   unsigned long nb_contains;
@@ -651,7 +654,7 @@ typedef struct task_data {
 #define CONTAINS 2
 //#include "threadpool.c"
 
-#define NUM_OPS (1 << 26)
+#define NUM_OPS (1 << 28)
 //#define TEST_MATRIX_SIZE 4
 /*
 void task_threadpool(void *data){
@@ -683,11 +686,11 @@ void task_threadpool(void *data){
 }
 */
 void* task_threads(void *data){
-  int serial = 0;
   task_data_t *d = (task_data_t *)data;
+  int serial = d->first_serial;
 
   /* init thread */
-  TM_THREAD_ENTER();
+  TM_THREAD_ENTER(d->ptid);
 
   //unsigned long aborts = 0;
 
@@ -702,7 +705,7 @@ void* task_threads(void *data){
   while (stop == 0) {
 #endif /* MUBENCH_WLPDSTM */
 
-	INC_SERIAL(d->ptid);
+	//INC_SERIAL(d->ptid);
 /*
 	val = rand_r(&d->seed) % 100;
 
@@ -731,22 +734,24 @@ void* task_threads(void *data){
     }*/
 	if (d->ops[serial].type == ADD) {
 	  // Add random value
-	  if (set_add(d->set, d->ops[serial].value TM_ARG_LAST)) {
+	  if (set_add(d->set, d->ops[serial].value, serial TM_ARG_LAST)) {
 		  d->diff++;
 	  }
 	  d->nb_add++;
 	} else if(d->ops[serial].type == REMOVE){
 	  // Remove last value
-      if (set_remove(d->set, d->ops[serial].value TM_ARG_LAST)){
+      if (set_remove(d->set, d->ops[serial].value, serial TM_ARG_LAST)){
 	    d->diff--;
 	  }
 	  d->nb_remove++;
 	} else {
 	  // Look for random value
-	  if (set_contains(d->set, d->ops[serial].value TM_ARG_LAST))
+	  if (set_contains(d->set, d->ops[serial].value, serial TM_ARG_LAST))
 		d->nb_found++;
 	  d->nb_contains++;
 	}
+
+	serial += d->nb_tasks;
   }
 
   //printf("finished at serial %d diff %d val %d op-2 %d op-1 %d op %d next op %d\n",serial, d->diff, d->ops[serial].value, d->ops[serial-2].type, d->ops[serial-1].type, d->ops[serial].type, d->ops[serial+1].type);
@@ -786,7 +791,7 @@ void* task_matrix(void *data){
 	task_data_t *d = (task_data_t *)data;
     int i, serial, v1, v2, line, end = 0;
 
-    TM_THREAD_ENTER();
+    TM_THREAD_ENTER(d->ptid);
 
     barrier_cross(d->barrier);
 
@@ -796,7 +801,7 @@ void* task_matrix(void *data){
 
 		line = d->ops[serial].value;
 
-		START_ID(0,1,1);
+		START_ID(0,1,1, serial);
 
 		for(i = 0; i < d->width; i++){
 			v1 = TM_SHARED_READ(d->matrix[line][i]);
@@ -1139,6 +1144,8 @@ int main(int argc, char **argv)
 		data[index].set = set;
 		data[index].barrier = &barrier;
 		data[index].ptid = i;
+		data[index].nb_tasks = nb_tasks;
+		data[index].first_serial = j;
 		data[index].seed = rand();
 		data[index].range = range;
 		data[index].update = update;

@@ -193,14 +193,14 @@ namespace wlpdstm {
 		static void InitializeSignaling();
 #endif /* SIGNALING */
 		
-		void ThreadInit();
+		void ThreadInit(int ptid);
 
 		unsigned IncSerial(unsigned ptid);
 
 		/**
 		 * Start a transaction.
 		 */
-		void TxStart(int lex_tx_id = NO_LEXICAL_TX, bool start_tx = true, bool commit = true);
+		void TxStart(int lex_tx_id = NO_LEXICAL_TX, bool start_tx = true, bool commit = true, int serial=0);
 
 		/**
 		 * Try to commit a transaction. Return 0 when commit is successful, reason for not succeeding otherwise.
@@ -676,10 +676,8 @@ inline void wlpdstm::TxMixinv::InitializeSignaling() {
 }
 #endif /* SIGNALING */
 
-inline void wlpdstm::TxMixinv::ThreadInit() {
+inline void wlpdstm::TxMixinv::ThreadInit(int ptid) {
 	aborted_externally = false;
-
-	serial = 0;
 
 #ifdef MM_EPOCH
 	InitLastObservedTs();
@@ -780,7 +778,7 @@ inline unsigned wlpdstm::TxMixinv::IncSerial(unsigned ptid){
 	return fetch_and_inc_full(&serial);
 }
 
-inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit) {
+inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit, int serial) {
 #ifdef PERFORMANCE_COUNTING
 	perf_cnt_sampling.tx_start();
 
