@@ -142,14 +142,11 @@ namespace wlpdstm {
 		// log related structures end //
 		////////////////////////////////
 
-		struct TransactionState {
-			Word valid_ts;
-			bool read_only;
-			int first_serial;
-		};
-
+		//TLSTM
+		//maybe these could benefit from being cache aligned?
 		struct ProgramThread {
-			volatile int last_completed_task, last_commited_task, next_task;
+			volatile int last_completed_task;
+			Word thread_commit_ts;
 			//ReadLog *read_log;
 			//WriteLog *write_log;
 			//ReadLog *fw_read_log;
@@ -449,8 +446,6 @@ namespace wlpdstm {
 		Word valid_ts;
 		
 		//TLSTM
-		TransactionState tx_state;
-
 		int serial, prog_thread_id;
 
 #ifdef PRIVATIZATION_QUIESCENCE
@@ -693,13 +688,14 @@ inline void wlpdstm::TxMixinv::InitializeWriteLocks() {
 		version_lock_table[i] = WRITE_LOCK_CLEAR;
 	}
 }
-
+//TLSTM
 inline void wlpdstm::TxMixinv::InitializeProgramThreads() {
 
 	for(unsigned i=0; i < MAX_THREADS; i++){
-		prog_thread[i].last_commited_task = -1;
+		//prog_thread[i].last_commited_task = -1;
 		prog_thread[i].last_completed_task = -1;
-		prog_thread[i].next_task = 0;
+		prog_thread[i].thread_commit_ts = 1;
+		//prog_thread[i].next_task = 0;
 	}
 }
 
@@ -722,6 +718,8 @@ inline void wlpdstm::TxMixinv::InitializeSignaling() {
 inline void wlpdstm::TxMixinv::ThreadInit(int ptid) {
 	aborted_externally = false;
 
+	//TLSTM
+	//on thread init we tell it which is its program-thread
 	prog_thread_id = ptid;
 
 #ifdef MM_EPOCH
@@ -819,10 +817,11 @@ inline wlpdstm::VersionLock *wlpdstm::TxMixinv::map_write_lock_to_read_lock(Writ
 // main algorithm start //
 //////////////////////////
 
+//not used now
 inline unsigned wlpdstm::TxMixinv::IncSerial(unsigned ptid){
 	prog_thread_id = ptid;
 
-	serial = fetch_and_inc_full(&prog_thread[prog_thread_id].next_task);
+	//serial = fetch_and_inc_full(&prog_thread[prog_thread_id].next_task);
 	//serial_index = serial & (specdepth - 1);
 
 	return serial;
@@ -835,8 +834,9 @@ inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit
 	if(perf_cnt_sampling.should_sample()) {
 		perf_cnt.TxStart();
 	}
-#endif /* PERFORMANCE_COUNTING */	
-	
+#endif /* PERFORMANCE_COUNTING */
+	//TLSTM
+	//on txstart we assign the tx serial in program-thread order
 	serial = new_serial;
 
 	atomic_store_full(&tx_status, (Word)TX_EXECUTING);
@@ -896,7 +896,35 @@ inline Word wlpdstm::TxMixinv::IncrementCommitTs() {
 }
 
 inline void wlpdstm::TxMixinv::TxCommit() {
-	while((int)atomic_load_acquire(&prog_thread[prog_thread_id].last_completed_task) != serial-1);
+	/*TLSTM
+	serial commit step
+	it can probably be improved
+	the loop variable does not need to be atomic, but some testing showed
+	it improved performance somehow
+	we need to check if the current task was told to abort inside the loop
+	*/
+	while((int)atomic_load_acquire(&prog_thread[prog_thread_id].last_completed_task) != serial-1){
+		if(aborted_externally){
+			stats.IncrementStatistics(Statistics::ABORT_WRITE_LOCKED);
+			IncrementWriteAbortStats();
+	#ifdef ADAPTIVE_LOCKING
+			++aborts;
+	#endif /* ADAPTIVE_LOCKING */
+			TxRestart(RESTART_LOCK);
+		}
+	}
+
+	//we also need to check after the loop, for the case when the task
+	//doesn't get inside the loop.
+	if(aborted_externally){
+                stats.IncrementStatistics(Statistics::ABORT_WRITE_LOCKED);
+                IncrementWriteAbortStats();
+        #ifdef ADAPTIVE_LOCKING
+                ++aborts;
+        #endif /* ADAPTIVE_LOCKING */
+                TxRestart(RESTART_LOCK);
+        }
+
 
 	RestartCause ret = TxTryCommit();
 
@@ -918,7 +946,7 @@ inline void wlpdstm::TxMixinv::TxCommit() {
 inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 	Word ts = valid_ts;
 	bool read_only = write_log.empty();
-	
+
 	if(!read_only) {
 		// first lock all read locks
 		for(WriteLog::iterator iter = write_log.begin();iter.hasNext();iter.next()) {
@@ -965,13 +993,16 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 #endif /* ADAPTIVE_LOCKING */
 			return RESTART_VALIDATION;
 		}
-		
+		//TLSTM
+		//we store the last commit ts of the program thread
+		prog_thread[prog_thread_id].thread_commit_ts = ts;
+
 		VersionLock commitVersion = get_version_lock(ts);
-		
+
 		// now update all written values
 		for(WriteLog::iterator iter = write_log.begin();iter.hasNext();iter.next()) {
 			WriteLogEntry &entry = *iter;
-			
+
 			// now update actual values
 			WriteWordLogEntry *word_log_entry = entry.head;
 
@@ -986,13 +1017,25 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 		}
 
 	} else {
+		/*TLSTM
+		read transactions need to be validated against the last write
+		in their program thread
+		*/
+		if(prog_thread[prog_thread_id].thread_commit_ts != valid_ts && !ValidateCommit()){
+			stats.IncrementStatistics(Statistics::ABORT_SPEC_READER);
+			IncrementReadAbortStats();
+			return RESTART_VALIDATION;
+		}
 		stats.IncrementStatistics(Statistics::COMMIT_READ_ONLY);
 	}
 
+	//TLSTM
+	//tell the next task it can start commiting
 	//prog_thread[prog_thread_id].last_completed_task = serial;
 	atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, serial);
+
 	atomic_store_release(&tx_status, TX_COMMITTED);
-		
+
 #ifdef PRIVATIZATION_QUIESCENCE
 	atomic_store_release(quiescence_ts, MINIMUM_TS);
 	PrivatizationQuiescenceWait(ts);
@@ -1016,14 +1059,14 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 #ifdef SUPPORT_LOCAL_WRITES
 	write_local_log.clear();
 #endif /* SUPPORT_LOCAL_WRITES */
-	
+
 	// commit mem
 	mm.TxCommit<TxMixinv>(ts);
-	
+
 	stats.IncrementStatistics(Statistics::COMMIT);
-	
+
 	succ_aborts = 0;
-	
+
 #ifdef ADAPTIVE_LOCKING
 	if(!read_only) {
 		ProposeTableChange();
@@ -1037,7 +1080,7 @@ inline void wlpdstm::TxMixinv::ReleaseReadLocks() {
 	for(WriteLog::iterator iter = write_log.begin();iter.hasNext();iter.next()) {
 		WriteLogEntry &entry = *iter;
 		*(entry.read_lock) = entry.old_version;
-	}			
+	}
 }
 
 // updates only write locks
@@ -1061,7 +1104,7 @@ inline void wlpdstm::TxMixinv::Rollback() {
 		WriteLogEntry &entry = *iter;
 		*entry.write_lock = WRITE_LOCK_CLEAR;
 	}
-	
+
 	// empty logs
 	read_log.clear();
 	write_log.clear();
@@ -1069,11 +1112,11 @@ inline void wlpdstm::TxMixinv::Rollback() {
 	write_local_log.clear();
 #endif /* SUPPORT_LOCAL_WRITES */
 	write_word_log_mem_pool.clear();
-	
+
 	YieldCPU();
-	
+
 	mm.TxAbort();
-	
+
 	stats.IncrementStatistics(Statistics::ABORT);
 }
 
@@ -1098,19 +1141,19 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 #ifdef ADAPTIVE_LOCKING
 	++writes;
 #endif /* ADAPTIVE_LOCKING */
-	
+
 	// read lock value
 	WriteLock lock_value = (WriteLock)atomic_load_no_barrier(write_lock);
 	bool locked = is_write_locked(lock_value);
-	
+
 	if(locked) {
 		WriteLogEntry *log_entry = (WriteLogEntry *)lock_value;
-		
+
 		if(LockedByMe(log_entry)) {
 			return log_entry;
 		}
 	}
-	
+
 #ifdef DETAILED_STATS
 	stats.IncrementStatistics(Statistics::NEW_WRITES);
 #endif /* DETAILED_STATS */
@@ -1118,21 +1161,21 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 	++new_writes;
 	bool false_conflict_detected = false;
 #endif /* ADAPTIVE_LOCKING */
-	
-	while(true) {		
+
+	while(true) {
 		if(locked) {
 #ifdef ADAPTIVE_LOCKING
 			if(!false_conflict_detected) {
 				false_conflict_detected = true;
-				
+
 				if(IsFalseConflict((WriteLogEntry *)lock_value, address)) {
 					stats.IncrementStatistics(Statistics::FALSE_CONFLICTS);
 					++false_sharing;
 				}
 			}
 #endif /* ADAPTIVE_LOCKING */
-			
-			if(((WriteLogEntry *)lock_value)->ptid != prog_thread_id && ShouldAbortWrite(write_lock)) {
+
+			if(ShouldAbortWrite(write_lock)){
 				stats.IncrementStatistics(Statistics::ABORT_WRITE_LOCKED);
 				IncrementWriteAbortStats();
 #ifdef ADAPTIVE_LOCKING
@@ -1151,15 +1194,17 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 				YieldCPU();
 			}
 		}
-		
+
 		// prepare write log entry
 		WriteLogEntry *log_entry = write_log.get_next();
 		log_entry->write_lock = write_lock;
 		log_entry->ClearWordLogEntries(); // need this here TODO - maybe move this to commit/abort time
 		log_entry->owner = this; // this is for CM - TODO: try to move it out of write path
+		//TLSTM
+		//we need to store the program-thread id and the tx serial for contention management
 		log_entry->ptid = prog_thread_id;
 		log_entry->serial = serial;
-		
+
 		// now try to lock it
 		if(atomic_cas_release(write_lock, WRITE_LOCK_CLEAR, log_entry)) {
 			// need to check read set validity if this address was read before
@@ -1183,60 +1228,27 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 			log_entry->read_lock = read_lock;
 			log_entry->old_version = version;
 			CmOnAccess();
-			
+
 #ifdef ADAPTIVE_LOCKING
 			if(larger_lock_extent_table.Set(map_address_to_index(address, larger_lock_extent))) {
 				stats.IncrementStatistics(Statistics::LARGER_TABLE_WRITE_HITS);
 				++larger_table_hits;
 			}
 #endif /* ADAPTIVE_LOCKING */
-			
+
 			return log_entry;
-		} else if(lock_value && ((WriteLogEntry *)lock_value)->ptid == prog_thread_id && ((WriteLogEntry *)lock_value)->serial > serial){
-			if(atomic_cas_release(write_lock, lock_value, log_entry)) {
-				// need to check read set validity if this address was read before
-				// we skip this read_before() check TODO: maybe do that
-				VersionLock *read_lock = map_write_lock_to_read_lock(write_lock);
-				VersionLock version = (VersionLock)atomic_load_acquire(read_lock);
-
-	//			if(get_value(version) > valid_ts) {
-				if(ShouldExtend(version)) {
-					if(!Extend()) {
-						stats.IncrementStatistics(Statistics::ABORT_WRITE_VALIDATE);
-						IncrementReadAbortStats();
-	#ifdef ADAPTIVE_LOCKING
-						++aborts;
-	#endif /* ADAPTIVE_LOCKING */
-						TxRestart(RESTART_VALIDATION);
-					}
-				}
-
-				// success
-				log_entry->read_lock = read_lock;
-				log_entry->old_version = version;
-				CmOnAccess();
-
-	#ifdef ADAPTIVE_LOCKING
-				if(larger_lock_extent_table.Set(map_address_to_index(address, larger_lock_extent))) {
-					stats.IncrementStatistics(Statistics::LARGER_TABLE_WRITE_HITS);
-					++larger_table_hits;
-				}
-	#endif /* ADAPTIVE_LOCKING */
-
-				return log_entry;
-			}
 		}
-		
+
 		// someone locked it in the meantime
 		// return last element back to the log
 		write_log.delete_last();
-		
+
 		// read version again
 		lock_value = (WriteLock)atomic_load_acquire(write_lock);
 		locked = is_write_locked(lock_value);
 		YieldCPU();
 	}
-	
+
 	// this can never happen
 	return NULL;
 }
@@ -1256,10 +1268,10 @@ inline void wlpdstm::TxMixinv::WriteWord(Word *address, Word value, Word mask) {
 inline void wlpdstm::TxMixinv::WriteWordInner(Word *address, Word value, Word mask) {
 	// map address to the lock
 	VersionLock *write_lock = map_address_to_write_lock(address);
-	
+
 	// try to lock the address - it will abort if address cannot be locked
 	WriteLogEntry *log_entry = LockMemoryStripe(write_lock, address);
-	
+
 	// insert (address, value) pair into the log
 	log_entry->InsertWordLogEntry(address, value, mask);
 }
@@ -1267,10 +1279,10 @@ inline void wlpdstm::TxMixinv::WriteWordInner(Word *address, Word value, Word ma
 #ifdef SUPPORT_LOCAL_WRITES
 inline void wlpdstm::TxMixinv::WriteWordLocal(Word *address, Word val) {
 	WriteWordLocalLogEntry *log_entry = write_local_log.get_next();
-	
+
 	log_entry->address = address;
 	log_entry->value = *address;
-	
+
 	// update location
 	*address = val;
 }
@@ -1278,15 +1290,15 @@ inline void wlpdstm::TxMixinv::WriteWordLocal(Word *address, Word val) {
 
 inline wlpdstm::TxMixinv::WriteWordLogEntry *wlpdstm::TxMixinv::WriteLogEntry::FindWordLogEntry(Word *address) {
 	WriteWordLogEntry *curr = head;
-	
+
 	while(curr != NULL) {
 		if(curr->address == address) {
 			break;
 		}
-		
+
 		curr = curr->next;
 	}
-	
+
 	return curr;
 }
 
@@ -1312,7 +1324,7 @@ inline Word wlpdstm::TxMixinv::MaskWord(Word old, Word val, Word mask) {
 	if(mask == LOG_ENTRY_UNMASKED) {
 		return val;
 	}
-	
+
 	return (old & ~mask) | (val & mask);
 }
 
@@ -1326,7 +1338,7 @@ inline void wlpdstm::TxMixinv::WriteLogEntry::ClearWordLogEntries() {
 
 inline Word wlpdstm::TxMixinv::ReadWord(Word *address) {
 	Word ret;
-	
+
 #ifdef STACK_PROTECT_ON_READ
 	if(OnStack((uintptr_t)address)) {
 		ret = *address;
@@ -1336,7 +1348,7 @@ inline Word wlpdstm::TxMixinv::ReadWord(Word *address) {
 #else
 	ret = ReadWordInner(address);
 #endif /* STACK_PROTECT_ON_READ */
-	
+
 	return ret;
 }
 
@@ -1346,19 +1358,19 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 #endif /* ADAPTIVE_LOCKING */
 	WriteLock *write_lock = map_address_to_write_lock(address);
 	WriteLogEntry *log_entry = (WriteLogEntry *)atomic_load_no_barrier(write_lock);
-	
+
 	// if locked by me return quickly
 	if(LockedByMe(log_entry)) {
 		WriteLogEntry *log_entry = (WriteLogEntry *)*write_lock;
 		WriteWordLogEntry *word_log_entry = log_entry->FindWordLogEntry(address);
-		
+
 		if(word_log_entry != NULL) {
 			// if it was written return from log
 			return MaskWord(word_log_entry);
 		} else {
 			// if it was not written return from memory
 			return (Word)atomic_load_no_barrier(address);
-		}		
+		}
 	}
 
 #ifdef ADAPTIVE_LOCKING
@@ -1390,7 +1402,7 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 
 		ReadLogEntry *entry = read_log.get_next();
 		entry->read_lock = read_lock;
-		entry->version = version;		
+		entry->version = version;
 
 		if(ShouldExtend(version)) {
 			if(!Extend()) {
@@ -1403,10 +1415,10 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 				TxRestart(RESTART_VALIDATION);
 			}
 		}
-		
+
 		break;
 	}
-	
+
 	return value;
 }
 
@@ -1429,47 +1441,47 @@ inline bool wlpdstm::TxMixinv::ShouldExtend(VersionLock version) {
 // this is validate that occurs during reads and writes not during commit
 inline bool wlpdstm::TxMixinv::Validate() {
 	ReadLog::iterator iter;
-	
+
 	for(iter = read_log.begin();iter.hasNext();iter.next()) {
 		ReadLogEntry &entry = *iter;
 		VersionLock currentVersion = (VersionLock)atomic_load_no_barrier(entry.read_lock);
-		
+
 		if(currentVersion != entry.version) {
 			return false;
 		}
 	}
-	
+
 	return true;
 }
 
 // validate invoked at commit time
 inline bool wlpdstm::TxMixinv::ValidateCommit() {
 	ReadLog::iterator iter;
-	
+
 	for(iter = read_log.begin();iter.hasNext();iter.next()) {
 		ReadLogEntry &entry = *iter;
 		VersionLock currentVersion = (VersionLock)atomic_load_no_barrier(entry.read_lock);
-		
+
 		if(currentVersion != entry.version) {
 			if(is_read_locked(currentVersion)) {
 				WriteLock *write_lock = map_read_lock_to_write_lock(entry.read_lock);
 				WriteLogEntry *log_entry = (WriteLogEntry *)atomic_load_no_barrier(write_lock);
-				
+
 				if(LockedByMe(log_entry)) {
 					continue;
 				}
 			}
-			
+
 			return false;
 		}
 	}
-	
+
 	return true;
 }
 
 inline bool wlpdstm::TxMixinv::Extend() {
 	unsigned ts = commit_ts.readCurrentTsAcquire();
-	
+
 	if(Validate()) {
 		valid_ts = ts;
 #ifdef PRIVATIZATION_QUIESCENCE
@@ -1477,13 +1489,13 @@ inline bool wlpdstm::TxMixinv::Extend() {
 #elif defined PRIVATIZATION_QUIESCENCE_TREE
 		privatization_tree.setNonMinimumTs(ts);
 #endif /* PRIVATIZATION_QUIESCENCE */
-		
+
 #ifdef TS_EXTEND_STATS
 		stats.IncrementStatistics(Statistics::EXTEND_SUCCESS);
 #endif /* TS_EXTEND_STATS */
 		return true;
 	}
-	
+
 #ifdef TS_EXTEND_STATS
 	stats.IncrementStatistics(Statistics::EXTEND_FAILURE);
 #endif /* TS_EXTEND_STATS */
@@ -1500,10 +1512,10 @@ inline void wlpdstm::TxMixinv::LockMemoryBlock(void *address, size_t size) {
 	uintptr_t end = start + size;
 	VersionLock *old = NULL;
 	VersionLock *curr;
-	
+
 	for(uintptr_t address = start;address < end;address++) {
 		curr = map_address_to_write_lock((Word *)address);
-		
+
 		if(curr != old) {
 			LockMemoryStripe(curr, (Word *)address);
 			old = curr;
@@ -1549,7 +1561,7 @@ inline void wlpdstm::TxMixinv::TxRestart(RestartCause cause) {
 			WaitOnAbort();
 		}
 	}
-#endif /* WAIT_ON_SUCC_ABORTS */	
+#endif /* WAIT_ON_SUCC_ABORTS */
 
 #ifdef PERFORMANCE_COUNTING
 	if(perf_cnt_sampling.should_sample()) {
@@ -1558,8 +1570,8 @@ inline void wlpdstm::TxMixinv::TxRestart(RestartCause cause) {
 		stats.IncrementStatistics(Statistics::RETIRED_INSTRUCTIONS, perf_cnt.GetRetiredInstructions());
 		stats.IncrementStatistics(Statistics::CACHE_MISSES, perf_cnt.GetCacheMisses());
 	}
-#endif /* PERFORMANCE_COUNTING */	
-	
+#endif /* PERFORMANCE_COUNTING */
+
 	RestartJump();
 }
 
@@ -1590,8 +1602,8 @@ inline void wlpdstm::TxMixinv::TxAbort() {
 		stats.IncrementStatistics(Statistics::RETIRED_INSTRUCTIONS, perf_cnt.GetRetiredInstructions());
 		stats.IncrementStatistics(Statistics::CACHE_MISSES, perf_cnt.GetCacheMisses());
 	}
-#endif /* PERFORMANCE_COUNTING */	
-	
+#endif /* PERFORMANCE_COUNTING */
+
 	AbortJump();
 }
 
@@ -1599,7 +1611,7 @@ inline void wlpdstm::TxMixinv::AbortJump() {
 #ifdef WLPDSTM_ICC
 //	jmp_to_begin_transaction(&start_buf, LONG_JMP_ABORT_FLAG);
 	jmp_to_begin_transaction(&start_buf);
-#else	
+#else
 	siglongjmp(start_buf, LONG_JMP_ABORT_FLAG);
 #endif /* WLPDSTM_ICC */
 }
@@ -1609,31 +1621,46 @@ inline bool wlpdstm::TxMixinv::ShouldAbortWrite(WriteLock *write_lock) {
 	if(aborted_externally) {
 		return true;
 	}
-	
-	if(greedy_ts == MINIMUM_TS) {
+
+	/*if(greedy_ts == MINIMUM_TS) {
 		return true;
-	}
-	
+	}*/
+
 	WriteLock lock_value = (WriteLock)atomic_load_no_barrier(write_lock);
-	
+
 	if(is_write_locked(lock_value)) {
 		WriteLogEntry *log_entry = (WriteLogEntry *)lock_value;
-		TxMixinv *owner = log_entry->owner;
-		
-		if(CMStrongerThan(owner)) {
+		//TLSTM
+		//prioritize writers from lower program-threads (arbitrary)
+		if(log_entry->ptid > prog_thread_id){
+			TxMixinv *owner = log_entry->owner;
+
+			//if(CMStrongerThan(owner)) {
+				if(!owner->aborted_externally) {
+					owner->aborted_externally = true;
+	#ifdef DETAILED_STATS
+					stats.IncrementStatistics(Statistics::CM_DECIDE);
+	#endif /* DETAILED_STATS */
+				}
+
+				return false;
+			//}
+		//TLSTM
+		//prioritize the first writer in program-thread order
+		} else if(log_entry->ptid == prog_thread_id && log_entry->serial > serial){
+			TxMixinv *owner = log_entry->owner;
 			if(!owner->aborted_externally) {
 				owner->aborted_externally = true;
 #ifdef DETAILED_STATS
 				stats.IncrementStatistics(Statistics::CM_DECIDE);
 #endif /* DETAILED_STATS */
 			}
-			
+
 			return false;
 		}
-		
 		return true;
 	}
-	
+
 	return false;
 }
 
@@ -1641,7 +1668,7 @@ inline bool wlpdstm::TxMixinv::CMStrongerThan(TxMixinv *other) {
 	if(greedy_ts == MINIMUM_TS) {
 		return false;
 	}
-	
+
 	unsigned other_ts = other->greedy_ts;
 	return other_ts == MINIMUM_TS || greedy_ts < other_ts;
 }
@@ -1686,7 +1713,7 @@ inline void wlpdstm::TxMixinv::WaitOnAbort() {
 #ifdef MM_EPOCH
 inline void wlpdstm::TxMixinv::InitLastObservedTs() {
 	last_observed_ts = MINIMUM_TS;
-	start_count = 0;	
+	start_count = 0;
 }
 
 inline void wlpdstm::TxMixinv::UpdateLastObservedTs(Word ts) {

@@ -266,6 +266,8 @@ int set_contains(intset_t *set, intptr_t val, int serial, tx_desc *tx)
 	START_ID(2, 1, 1, serial);
     res = TMrbtree_contains(tx, set, val);
     res = TMrbtree_contains(tx, set, val+1);
+    res = TMrbtree_contains(tx, set, val+2);
+    res = TMrbtree_contains(tx, set, val+3);
 	COMMIT;
 
 	return res;
