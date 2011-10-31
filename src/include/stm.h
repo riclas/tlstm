@@ -16,9 +16,9 @@
 	if(sigsetjmp(*wlpdstm_get_long_jmp_buf_desc(tx), 0) != LONG_JMP_ABORT_FLAG) {	\
 		wlpdstm_start_tx_desc(tx)
 
-#define BEGIN_TRANSACTION_DESC_ID(TX_ID,start,commit,serial)	\
+#define BEGIN_TRANSACTION_DESC_ID(TX_ID, commit, serial, start, last)	\
 	if(sigsetjmp(*wlpdstm_get_long_jmp_buf_desc(tx), 0) != LONG_JMP_ABORT_FLAG) {	\
-		wlpdstm_start_tx_id_desc(tx, TX_ID, start, commit,serial)
+		wlpdstm_start_tx_id_desc(tx, TX_ID, commit, serial, start, last)
 
 #define END_TRANSACTION_DESC				\
 		wlpdstm_commit_tx_desc(tx);			\

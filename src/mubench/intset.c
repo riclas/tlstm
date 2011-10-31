@@ -45,9 +45,9 @@
 #define fetch_and_inc_full(addr) (AO_fetch_and_add1_full((volatile AO_t *)(addr)))
 
 #define START                           BEGIN_TRANSACTION_DESC
-#define START_ID(ID,start,commit,serial)       BEGIN_TRANSACTION_DESC_ID(ID,start,commit,serial)
+#define START_ID(ID, commit, serial, start, last)       BEGIN_TRANSACTION_DESC_ID(ID, commit, serial, start, last)
 #define START_RO                        START
-#define START_RO_ID(ID,start,commit,serial)    START_ID(ID,start,commit,serial)
+#define START_RO_ID(ID, commit, serial, start, last)    START_ID(ID, commit, serial, start, last)
 #define LOAD(addr)                      wlpdstm_read_word_desc(tx, (Word *)(addr))
 #define STORE(addr, value)              wlpdstm_write_word_desc(tx, (Word *)addr, (Word)value)
 #define COMMIT                          END_TRANSACTION
@@ -211,11 +211,11 @@ int set_add_seq(intset_t *set, intptr_t val) {
 }
 
 #ifdef MUBENCH_WLPDSTM
-int set_add(intset_t *set, intptr_t val, int serial, tx_desc *tx)
+int set_add(intset_t *set, intptr_t val, int commit, int serial, int start, int last, tx_desc *tx)
 {
 	int res = 0;
 
-	START_ID(0, 1, 1, serial);
+	START_ID(0, commit, serial, start, last);
 	res = !TMrbtree_insert(tx, set, val, val);
 	COMMIT;
 
@@ -235,11 +235,11 @@ int set_add(intset_t *set, intptr_t val)
 #endif /* MUBENCH_TANGER || MUBENCH_SEQUENTIAL */
 
 #ifdef MUBENCH_WLPDSTM
-int set_remove(intset_t *set, intptr_t val, int serial, tx_desc *tx)
+int set_remove(intset_t *set, intptr_t val, int commit, int serial, int start, int last, tx_desc *tx)
 {
 	int res = 0;
 
-	START_ID(1, 1, 1, serial);
+	START_ID(1, commit, serial, start, last);
     res = TMrbtree_delete(tx, set, val);
 	COMMIT;
 
@@ -259,15 +259,15 @@ int set_remove(intset_t *set, intptr_t val)
 #endif /* MUBENCH_TANGER || MUBENCH_SEQUENTIAL */
 
 #ifdef MUBENCH_WLPDSTM
-int set_contains(intset_t *set, intptr_t val, int serial, tx_desc *tx)
+int set_contains(intset_t *set, intptr_t val, int commit, int serial, int start, int last, tx_desc *tx)
 {
 	int res = 0;
 
-	START_ID(2, 1, 1, serial);
+	START_ID(2, commit, serial, start, last);
     res = TMrbtree_contains(tx, set, val);
-    res = TMrbtree_contains(tx, set, val+1);
-    res = TMrbtree_contains(tx, set, val+2);
-    res = TMrbtree_contains(tx, set, val+3);
+    //res = TMrbtree_contains(tx, set, val+1);
+    //res = TMrbtree_contains(tx, set, val+2);
+    //res = TMrbtree_contains(tx, set, val+3);
 	COMMIT;
 
 	return res;
@@ -629,6 +629,9 @@ void barrier_cross(barrier_t *b)
 typedef struct op {
 	int type;
 	int value;
+	int start;
+	int last;
+	int try_commit;
 } op;
 
 typedef struct task_data {
@@ -656,7 +659,7 @@ typedef struct task_data {
 #define CONTAINS 2
 //#include "threadpool.c"
 
-#define NUM_OPS (1 << 28)
+#define NUM_OPS (1 << 24)
 //#define TEST_MATRIX_SIZE 4
 /*
 void task_threadpool(void *data){
@@ -736,19 +739,19 @@ void* task_threads(void *data){
     }*/
 	if (d->ops[serial].type == ADD) {
 	  // Add random value
-	  if (set_add(d->set, d->ops[serial].value, serial TM_ARG_LAST)) {
+	  if (set_add(d->set, d->ops[serial].value, d->ops[serial].try_commit, serial, d->ops[serial].start, d->ops[serial].last TM_ARG_LAST)) {
 		  d->diff++;
 	  }
 	  d->nb_add++;
 	} else if(d->ops[serial].type == REMOVE){
 	  // Remove last value
-      if (set_remove(d->set, d->ops[serial].value, serial TM_ARG_LAST)){
+      if (set_remove(d->set, d->ops[serial].value, d->ops[serial].try_commit, serial, d->ops[serial].start, d->ops[serial].last TM_ARG_LAST)){
 	    d->diff--;
 	  }
 	  d->nb_remove++;
 	} else {
 	  // Look for random value
-	  if (set_contains(d->set, d->ops[serial].value, serial TM_ARG_LAST))
+	  if (set_contains(d->set, d->ops[serial].value, d->ops[serial].try_commit, serial, d->ops[serial].start, d->ops[serial].last TM_ARG_LAST))
 		d->nb_found++;
 	  d->nb_contains++;
 	}
@@ -803,7 +806,7 @@ void* task_matrix(void *data){
 
 		line = d->ops[serial].value;
 
-		START_ID(0,1,1, serial);
+		START_ID(0,1,1, serial,0);
 
 		for(i = 0; i < d->width; i++){
 			v1 = TM_SHARED_READ(d->matrix[line][i]);
@@ -1107,14 +1110,27 @@ int main(int argc, char **argv)
 	    exit(1);
 	  }
 	  int add = 0;
+	  int start_serial;
 	  for(j = 0; j < NUM_OPS; j++){
 		  int aux = rand() % 100;
+		  if(j % nb_tasks == 0){
+			  start_serial = j;
+		  }
+		  ops[i][j].start = start_serial;
+		  ops[i][j].last = start_serial + nb_tasks - 1;
+
+		  if(ops[i][j].last == j){
+			  ops[i][j].try_commit = 1;
+		  } else {
+			  ops[i][j].try_commit = 0;
+		  }
 		  if(aux < update){
 			  //when "even" add a node
 			  if(add % 2 == 0){
 				  value = (rand() % range) + 1;
 				  ops[i][j].type = ADD;
 				  ops[i][j].value = value;
+
 				  add = (add + 1) % 2001;
 			  //when "odd" remove a node
 			  } else {
@@ -1126,6 +1142,8 @@ int main(int argc, char **argv)
 			  ops[i][j].type = CONTAINS;
 			  ops[i][j].value = (rand() % range) + 1;
 		  }
+		  //if(j < 60)
+			  //printf("%d -> %d\n", ops[i][j].type, ops[i][j].value);
 	  }
   }
 
