@@ -1113,6 +1113,7 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 					atomic_store_release(entry.write_lock, entry.next);
 				}
 			}
+			atomic_store_release(&prog_thread[prog_thread_id].last_completed_writer, serial);
 		} else {
 			stats.IncrementStatistics(Statistics::COMMIT_READ_ONLY);
 		}
@@ -1196,10 +1197,14 @@ inline void wlpdstm::TxMixinv::Rollback() {
 		WriteLogEntry &entry = *iter;
 		WriteLogEntry *log_entry = (WriteLogEntry *)*entry.write_lock;
 
-		while(log_entry != &entry){
-			log_entry = log_entry->next;
+		if(log_entry == &entry){
+			*entry.write_lock = (WriteLock)log_entry->next;
+		} else {
+			while(log_entry->next != &entry){
+				log_entry = log_entry->next;
+			}
+			log_entry->next = log_entry->next->next;
 		}
-		*log_entry = *log_entry->next;
 	}
 
 	// empty logs
@@ -1243,16 +1248,15 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 	// read lock value
 	WriteLock lock_value = (WriteLock)atomic_load_no_barrier(write_lock);
 	bool locked = is_write_locked(lock_value);
+	WriteLogEntry *entry = (WriteLogEntry *)lock_value;
 
 	if(locked) {
-		WriteLogEntry *log_entry = (WriteLogEntry *)lock_value;
-
-		if(log_entry->ptid == prog_thread_id){
-			while(log_entry != NULL && log_entry->serial <= serial){
-				if(log_entry->owner == this) {
-					return log_entry;
+		if(entry->ptid == prog_thread_id){
+			while(entry != NULL && entry->serial <= serial){
+				if(entry->owner == this) {
+					return entry;
 				}
-				log_entry = log_entry->next;
+				entry = entry->next;
 			}
 		}
 	}
@@ -1265,10 +1269,11 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 	bool false_conflict_detected = false;
 #endif /* ADAPTIVE_LOCKING */
 
-	WriteLogEntry *log_entry = (WriteLogEntry *)lock_value;
+	WriteLogEntry *log_entry;
+	entry = (WriteLogEntry *)lock_value;
 
 	while(true) {
-		if(locked && log_entry->ptid != prog_thread_id) {
+		if(locked && entry->ptid != prog_thread_id) {
 #ifdef ADAPTIVE_LOCKING
 			if(!false_conflict_detected) {
 				false_conflict_detected = true;
@@ -1295,7 +1300,7 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 				TxRestart(RESTART_LOCK);
 			} else {
 				lock_value = (WriteLock)atomic_load_acquire(write_lock);
-				log_entry = (WriteLogEntry *)lock_value;
+				entry = (WriteLogEntry *)lock_value;
 				locked = is_write_locked(lock_value);
 				YieldCPU();
 			}
@@ -1310,9 +1315,8 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 		//we need to store the program-thread id and the tx serial for contention management
 		log_entry->ptid = prog_thread_id;
 		log_entry->serial = serial;
-		log_entry->write_number = write_number++;
-
-		WriteLogEntry *entry = (WriteLogEntry *)lock_value;
+		log_entry->write_number = write_number;
+		log_entry->next = NULL;
 
 		if(entry != NULL){
 			while(entry->next != NULL && entry->next->serial < serial){
@@ -1320,6 +1324,7 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 			}
 			if(entry->serial < serial){
 				log_entry->next = entry->next;
+
 				if(atomic_cas_release(&entry->next, log_entry->next, log_entry)) {
 					break;
 				}
@@ -1338,7 +1343,7 @@ inline wlpdstm::TxMixinv::WriteLogEntry *wlpdstm::TxMixinv::LockMemoryStripe(Wri
 
 		// read version again
 		lock_value = (WriteLock)atomic_load_acquire(write_lock);
-		log_entry = (WriteLogEntry *)lock_value;
+		entry = (WriteLogEntry *)lock_value;
 		locked = is_write_locked(lock_value);
 		YieldCPU();
 	}
@@ -1480,6 +1485,16 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 #ifdef ADAPTIVE_LOCKING
 	++reads;
 #endif /* ADAPTIVE_LOCKING */
+
+	if(address < (Word*)0xffff){
+		stats.IncrementStatistics(Statistics::ABORT_INCONSISTENT_READ);
+			IncrementReadAbortStats();
+#ifdef ADAPTIVE_LOCKING
+			++aborts;
+#endif /* ADAPTIVE_LOCKING */
+			TxRestart(RESTART_VALIDATION);
+	}
+
 	WriteLock *write_lock = map_address_to_write_lock(address);
 	WriteLogEntry *log_entry = (WriteLogEntry *)atomic_load_no_barrier(write_lock);
 

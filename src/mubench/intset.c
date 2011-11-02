@@ -1110,7 +1110,7 @@ int main(int argc, char **argv)
 	    exit(1);
 	  }
 	  int add = 0;
-	  int start_serial;
+	  int start_serial = 0;
 	  for(j = 0; j < NUM_OPS; j++){
 		  int aux = rand() % 100;
 		  if(j % nb_tasks == 0){
