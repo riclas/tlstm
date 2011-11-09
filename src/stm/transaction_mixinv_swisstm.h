@@ -140,6 +140,8 @@ namespace wlpdstm {
 		// log related structures end //
 		////////////////////////////////
 		
+		struct ProgramThread {};
+
 	public:
 		// possible CM phases
 		enum CmPhase {
@@ -200,7 +202,7 @@ namespace wlpdstm {
 		/**
 		 * Start a transaction.
 		 */
-		void TxStart(int lex_tx_id = NO_LEXICAL_TX, bool start_tx = true, bool commit = true, int serial=0);
+		void TxStart(int lex_tx_id = NO_LEXICAL_TX, bool commit = true, int serial = 0, int start_serial = 0, int commit_serial = 0);
 
 		/**
 		 * Try to commit a transaction. Return 0 when commit is successful, reason for not succeeding otherwise.
@@ -516,6 +518,10 @@ namespace wlpdstm {
 		
 		static PaddedBool synchronization_in_progress;
 		
+		static ProgramThread prog_thread[MAX_THREADS];
+
+		static int specdepth;
+
 #ifdef PRIVATIZATION_QUIESCENCE
 		static volatile Word quiescence_timestamp_array[MAX_THREADS];
 #endif /* PRIVATIZATION_QUIESCENCE */
@@ -778,7 +784,7 @@ inline unsigned wlpdstm::TxMixinv::IncSerial(unsigned ptid){
 	return fetch_and_inc_full(&serial);
 }
 
-inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool start_tx, bool commit, int serial) {
+inline void wlpdstm::TxMixinv::TxStart(int lex_tx_id, bool commit, int new_serial, int start_s, int commit_s) {
 #ifdef PERFORMANCE_COUNTING
 	perf_cnt_sampling.tx_start();
 

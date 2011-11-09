@@ -659,7 +659,7 @@ typedef struct task_data {
 #define CONTAINS 2
 //#include "threadpool.c"
 
-#define NUM_OPS (1 << 24)
+#define NUM_OPS (1 << 26)
 //#define TEST_MATRIX_SIZE 4
 /*
 void task_threadpool(void *data){
@@ -1111,6 +1111,7 @@ int main(int argc, char **argv)
 	  }
 	  int add = 0;
 	  int start_serial = 0;
+
 	  for(j = 0; j < NUM_OPS; j++){
 		  int aux = rand() % 100;
 		  if(j % nb_tasks == 0){
@@ -1142,8 +1143,6 @@ int main(int argc, char **argv)
 			  ops[i][j].type = CONTAINS;
 			  ops[i][j].value = (rand() % range) + 1;
 		  }
-		  //if(j < 60)
-			  //printf("%d -> %d\n", ops[i][j].type, ops[i][j].value);
 	  }
   }
 
