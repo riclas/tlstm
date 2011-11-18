@@ -659,7 +659,7 @@ typedef struct task_data {
 #define CONTAINS 2
 //#include "threadpool.c"
 
-#define NUM_OPS (1 << 26)
+#define NUM_OPS (1 << 23)
 //#define TEST_MATRIX_SIZE 4
 /*
 void task_threadpool(void *data){
@@ -705,7 +705,7 @@ void* task_threads(void *data){
   //int val;
 
 #ifdef MUBENCH_WLPDSTM
-  while(serial < NUM_OPS && AO_load_full(&stop) == 0){
+  while(serial < NUM_OPS /*&& AO_load_full(&stop) == 0*/){
 #else
   while (stop == 0) {
 #endif /* MUBENCH_WLPDSTM */
@@ -1110,9 +1110,9 @@ int main(int argc, char **argv)
 	    exit(1);
 	  }
 	  int add = 0;
-	  int start_serial = 0;
+	  int start_serial = nb_tasks;
 
-	  for(j = 0; j < NUM_OPS; j++){
+	  for(j = nb_tasks; j < NUM_OPS; j++){
 		  int aux = rand() % 100;
 		  if(j % nb_tasks == 0){
 			  start_serial = j;
@@ -1164,7 +1164,7 @@ int main(int argc, char **argv)
 		data[index].barrier = &barrier;
 		data[index].ptid = i;
 		data[index].nb_tasks = nb_tasks;
-		data[index].first_serial = j;
+		data[index].first_serial = j+nb_tasks;
 		data[index].seed = rand();
 		data[index].range = range;
 		data[index].update = update;
@@ -1186,16 +1186,14 @@ int main(int argc, char **argv)
 
   printf("STARTING...\n");
   gettimeofday(&start, NULL);
-  if (duration > 0) {
+  /*if (duration > 0) {
     nanosleep(&timeout, NULL);
-  }
+  }*/
 #ifdef MUBENCH_WLPDSTM
-  AO_store_full(&stop, 1);
+  //AO_store_full(&stop, 1);
 #else
   stop = 1;
 #endif /* MUBENCH_WLPDSTM */
-  gettimeofday(&end, NULL);
-  printf("STOPPING...\n");
 
   /* Wait for thread completion */
   for (i = 0; i < nb_threads*nb_tasks; i++) {
@@ -1204,6 +1202,9 @@ int main(int argc, char **argv)
       exit(1);
     }
   }
+
+  printf("STOPPING...\n");
+  gettimeofday(&end, NULL);
 
   //print the matrix after the test is over
   /*for(i = 0; i < height; i++){
