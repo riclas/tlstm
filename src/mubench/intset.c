@@ -659,7 +659,7 @@ typedef struct task_data {
 #define CONTAINS 2
 //#include "threadpool.c"
 
-#define NUM_OPS (1 << 23)
+#define NUM_OPS (1 << 22)
 //#define TEST_MATRIX_SIZE 4
 /*
 void task_threadpool(void *data){

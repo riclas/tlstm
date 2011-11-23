@@ -151,9 +151,17 @@ namespace wlpdstm {
 		////////////////////////////////
 
 		//TLSTM
-		//maybe these could benefit from being cache aligned?
 		struct ProgramThread {
-			volatile Word last_completed_task, last_completed_writer;
+			CACHE_LINE_ALIGNED union {
+				volatile Word last_completed_task;
+				char padding_last_completed_task[CACHE_LINE_SIZE_BYTES];
+			};
+
+			CACHE_LINE_ALIGNED union {
+				volatile Word last_completed_writer;
+				char padding_last_completed_writer[CACHE_LINE_SIZE_BYTES];
+			};
+
 			TxMixinv **owners;
 			//ReadLog *read_log;
 			//WriteLog *write_log;
@@ -431,7 +439,7 @@ namespace wlpdstm {
 		// w shared
 		CACHE_LINE_ALIGNED union {
 			volatile bool aborted_externally;
-			char padding_aborted_extrenally[CACHE_LINE_SIZE_BYTES];
+			char padding_aborted_externally[CACHE_LINE_SIZE_BYTES];
 		};
 		
 #ifdef MM_EPOCH
@@ -925,8 +933,18 @@ inline void wlpdstm::TxMixinv::TxCommit() {
 	we need to check if the current task was told to abort inside the loop
 	*/
 	//while(prog_thread[prog_thread_id].last_completed_task != serial-1){
-	while(atomic_load_acquire(&prog_thread[prog_thread_id].last_completed_task) != serial-1){
+	while(atomic_load_acquire(&prog_thread[prog_thread_id].last_completed_task) < serial-1){
 		if(aborted_externally){
+			if(prog_thread[prog_thread_id].last_completed_task == serial-1){
+
+				if(prog_thread[prog_thread_id].last_completed_writer >= start_serial){
+					prog_thread[prog_thread_id].last_completed_writer = start_serial-1;
+				}
+
+				atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, start_serial-1);
+			} else {
+				while(prog_thread[prog_thread_id].last_completed_task != start_serial-1);
+			}
 			stats.IncrementStatistics(Statistics::ABORT_WRITE_LOCKED);
 			IncrementWriteAbortStats();
 	#ifdef ADAPTIVE_LOCKING
@@ -939,12 +957,18 @@ inline void wlpdstm::TxMixinv::TxCommit() {
 	//we also need to check after the loop, for the case when the task
 	//doesn't get inside the loop.
 	if(aborted_externally){
-			stats.IncrementStatistics(Statistics::ABORT_WRITE_LOCKED);
-			IncrementWriteAbortStats();
-	#ifdef ADAPTIVE_LOCKING
-			++aborts;
-	#endif /* ADAPTIVE_LOCKING */
-			TxRestart(RESTART_LOCK);
+
+		if(prog_thread[prog_thread_id].last_completed_writer >= start_serial){
+			prog_thread[prog_thread_id].last_completed_writer = start_serial-1;
+		}
+		atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, start_serial-1);
+
+		stats.IncrementStatistics(Statistics::ABORT_WRITE_LOCKED);
+		IncrementWriteAbortStats();
+#ifdef ADAPTIVE_LOCKING
+		++aborts;
+#endif /* ADAPTIVE_LOCKING */
+		TxRestart(RESTART_LOCK);
 	}
 
 	if(prog_thread[prog_thread_id].last_completed_writer != last_writer){
@@ -1023,8 +1047,16 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 		atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, serial);
 
 		//while(prog_thread[prog_thread_id].last_completed_task != commit_serial){
-		while(atomic_load_acquire(&prog_thread[prog_thread_id].last_completed_task) != commit_serial){
+		while(atomic_load_acquire(&prog_thread[prog_thread_id].last_completed_task) < commit_serial){
 			if(aborted_externally){
+				while(prog_thread[prog_thread_id].last_completed_task >= serial){
+					if(prog_thread[prog_thread_id].last_completed_task == commit_serial){
+						break;
+					}
+				}
+				if(prog_thread[prog_thread_id].last_completed_task == commit_serial){
+					break;
+				}
 				stats.IncrementStatistics(Statistics::ABORT_COMMIT_VALIDATE);
 				IncrementWriteAbortStats();
 		#ifdef ADAPTIVE_LOCKING
@@ -1037,12 +1069,19 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 		//we also need to check after the loop, for the case when the task
 		//doesn't get inside the loop.
 		if(aborted_externally){
+			while(prog_thread[prog_thread_id].last_completed_task >= serial){
+				if(prog_thread[prog_thread_id].last_completed_task == commit_serial){
+					break;
+				}
+			}
+			if(prog_thread[prog_thread_id].last_completed_task != commit_serial){
 				stats.IncrementStatistics(Statistics::ABORT_COMMIT_VALIDATE);
 				IncrementWriteAbortStats();
 		#ifdef ADAPTIVE_LOCKING
 				++aborts;
 		#endif /* ADAPTIVE_LOCKING */
 				TxRestart(RESTART_VALIDATION);
+			}
 		}
 		//END of an intermediate task
 	} else {
@@ -1087,6 +1126,8 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 			if((abort_serial = ValidateCommit()) > -1) {
 	#endif /* commit_ts */
 				ReleaseReadLocks();
+				atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, abort_serial-1);
+
 				for(Word i = abort_serial; i < serial; i++){
 					prog_thread[prog_thread_id].owners[i & (specdepth - 1)]->aborted_externally = true;
 				}
@@ -1197,7 +1238,7 @@ inline void wlpdstm::TxMixinv::Rollback() {
 	if(rolled_back) {
 		return;
 	}
-
+//printf("%d\n", serial);
 	rolled_back = true;
 	//if(prog_thread_id == 0)
 	//	printf("%d %d %d\n", prog_thread_id, serial, try_commit);
@@ -1849,18 +1890,23 @@ inline bool wlpdstm::TxMixinv::ShouldAbortWrite(WriteLock *write_lock) {
 		//TLSTM
 		//prioritize writers from lower program-threads (arbitrary)
 		if(log_entry->ptid > prog_thread_id){
-			TxMixinv *owner = log_entry->owner;
+			Word aux = 0;
+			while(log_entry != NULL){
+				TxMixinv *owner = log_entry->owner;
 
-			//if(CMStrongerThan(owner)) {
-				if(!owner->aborted_externally) {
-					owner->aborted_externally = true;
-	#ifdef DETAILED_STATS
-					stats.IncrementStatistics(Statistics::CM_DECIDE);
-	#endif /* DETAILED_STATS */
+				if(aux != owner->start_serial){
+					aux = start_serial;
+
+					for(Word i = aux; i <= owner->commit_serial; i++){
+						prog_thread[log_entry->ptid].owners[i & (specdepth - 1)]->aborted_externally = true;
+		#ifdef DETAILED_STATS
+						stats.IncrementStatistics(Statistics::CM_DECIDE);
+		#endif /* DETAILED_STATS */
+					}
 				}
-
-				return false;
-			//}
+				log_entry = log_entry->next;
+			}
+			return false;
 		//TLSTM
 		//prioritize the first writer in program-thread order
 		} /*else if(log_entry->ptid == prog_thread_id && log_entry->serial > serial){
