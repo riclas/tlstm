@@ -1895,7 +1895,7 @@ inline bool wlpdstm::TxMixinv::ShouldAbortWrite(WriteLock *write_lock) {
 				TxMixinv *owner = log_entry->owner;
 
 				if(aux != owner->start_serial){
-					aux = start_serial;
+					aux = owner->start_serial;
 
 					for(Word i = aux; i <= owner->commit_serial; i++){
 						prog_thread[log_entry->ptid].owners[i & (specdepth - 1)]->aborted_externally = true;

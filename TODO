@@ -1,3 +1,29 @@
+escrita:
+- se write-lock livre a task pode trancar
+- se write-lock trancado por task de outra program-thread, chamar contention manager;
+contention manager aborta transacção com menor program-thread id
+- se write-lock trancado pela minha program-thread:
+	- se trancado por task com serial inferior abortar até ser task actual
+	(last-completed-task == serial-1);
+	actualizar o serial do write-lock para o serial da task actual
+	- se trancado por task com serial superior assinalar que essa task tem de abortar;
+	esperar até que a task futura aborte para a task passada poder escrever 
+
+leitura:
+- se write-lock trancado por outra program-thread ler valor commited e adicionar ao read-log
+- se write-lock trancado pela mesma program-thread:
+	- se write-lock trancado por essa task, ler do write-lock
+	- se write-lock trancado por task passada ler do write-lock e adicionar entrada no task-read-log
+	- se write-lock trancado por task futura ler de valor commited e adicionar ao read-log
+
+validação:
+- no final de cada task, assim que for a sua vez, a task deve validar:
+	- que as entradas do seu task-read-log não foram re-escritas por alguma task entre
+	a escrita registada e a leitura efectuada
+	- que as entradas do seu read-log não foram escritas por alguma task passada
+
+- no final de cada transacção fazer a validação "normal" do swisstm no read-log
+
 em caso de write-write conflict o contention manager vai assinalar a abort flag
 em todas as tasks de todas as transacções com lock no objecto em conflito.
 cada task tem de verificar depois do spin da last_completed_task se é para abortar.
