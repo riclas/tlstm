@@ -1295,7 +1295,7 @@ inline void wlpdstm::TxMixinv::Rollback() {
 		WriteLogEntry &entry = *iter;
 
 
-		while(*entry.write_lock != (Word)&entry){
+		while(*entry.write_lock != (Word)&entry);
 
 		*entry.write_lock = (Word)entry.old_entry;
 	}
