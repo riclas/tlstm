@@ -1164,9 +1164,9 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 			// overlap with the write set of another and this would pass unnoticed
 			Word abort_serial;
 	#ifdef COMMIT_TS_INC
-			if(ts != valid_ts + 1 && (abort_serial = ValidateCommit()) > -1) {
+			if(ts != valid_ts + 1 && (abort_serial = ValidateCommit()) > 0) {
 	#elif defined COMMIT_TS_GV4
-			if((abort_serial = ValidateCommit()) > -1) {
+			if((abort_serial = ValidateCommit()) > 0) {
 	#endif /* commit_ts */
 				ReleaseReadLocks();
 				if(prog_thread[prog_thread_id].last_completed_writer >= abort_serial)
@@ -1295,11 +1295,7 @@ inline void wlpdstm::TxMixinv::Rollback() {
 		WriteLogEntry &entry = *iter;
 
 
-		/*while(*entry.write_lock != (Word)&entry){
-			if(*entry.write_lock == 0)
-						printf("stop\n");
-
-		}*/
+		while(*entry.write_lock != (Word)&entry){
 
 		*entry.write_lock = (Word)entry.old_entry;
 	}
@@ -1761,7 +1757,7 @@ inline Word wlpdstm::TxMixinv::ValidateCommit() {
 			}
 		}
 	}
-	return -1;
+	return 0;
 }
 
 inline bool wlpdstm::TxMixinv::Extend() {
