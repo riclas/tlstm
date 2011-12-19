@@ -1232,18 +1232,18 @@ int main(int argc, char **argv)
 	  //printf("%d\n", data[i*nb_tasks + j].diff);
  	}
     printf("Thread %d\n", i);
-    printf("  #add        : %lu\n", nb_add);
-    printf("  #remove     : %lu\n", nb_remove);
-    printf("  #contains   : %lu\n", nb_contains);
+    printf("  #add        : %lu\n", nb_add/nb_tasks);
+    printf("  #remove     : %lu\n", nb_remove/nb_tasks);
+    printf("  #contains   : %lu\n", nb_contains/nb_tasks);
     printf("  #found      : %lu\n", nb_found);
     reads += nb_contains;
     updates += (nb_add + nb_remove);
   }
   printf("Set size      : %d (expected: %d)\n", set_size(set), size);
   printf("Duration      : %d (ms)\n", duration);
-  printf("#txs          : %lu (%f / s)\n", reads + updates, (reads + updates) * 1000.0 / duration);
-  printf("#read txs     : %lu (%f / s)\n", reads, reads * 1000.0 / duration);
-  printf("#update txs   : %lu (%f / s)\n", updates, updates * 1000.0 / duration);
+  printf("#txs          : %lu (%f / s)\n", (reads + updates)/nb_tasks, (reads + updates)/nb_tasks * 1000.0 / duration);
+  printf("#read txs     : %lu (%f / s)\n", reads/nb_tasks, reads/nb_tasks * 1000.0 / duration);
+  printf("#update txs   : %lu (%f / s)\n", updates/nb_tasks, updates/nb_tasks * 1000.0 / duration);
 
   TM_SHUTDOWN();
 

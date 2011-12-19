@@ -87,12 +87,14 @@ namespace wlpdstm {
 		struct ReadLogEntry {
 			VersionLock *read_lock;
 			VersionLock version;
+			Word *address;
 		};
 
 		struct TaskReadLogEntry {
 			WriteLock *write_lock;
 			Word serial;
 			Word write_number;
+			Word *address;
 		};
 
 		// mask is needed here to avoid overwriting non-transactional
@@ -475,7 +477,7 @@ namespace wlpdstm {
 		Word valid_ts;
 		
 		//TLSTM
-		Word serial, prog_thread_id, start_serial, commit_serial, last_writer, write_number;
+		Word serial, prog_thread_id, start_serial, commit_serial, last_writer, write_number, last_abort, abort_count;
 		bool try_commit;
 
 #ifdef PRIVATIZATION_QUIESCENCE
@@ -748,6 +750,9 @@ inline void wlpdstm::TxMixinv::ThreadInit(int ptid) {
 	abort_inthread = false;
 	abort_outthread = false;
 
+	last_abort = 0;
+	abort_count = 0;
+
 	//TLSTM
 	//on thread init we tell it which is its program-thread
 	prog_thread_id = ptid;
@@ -1003,7 +1008,7 @@ inline void wlpdstm::TxMixinv::TxCommit() {
 
 			WriteLogEntry *log_entry = (WriteLogEntry *)atomic_load_no_barrier(entry.write_lock);
 
-			if(log_entry->ptid == prog_thread_id){
+			if(log_entry != NULL && log_entry->ptid == prog_thread_id){
 				if(entry.serial != log_entry->serial || entry.write_number != log_entry->write_number){
 					stats.IncrementStatistics(Statistics::ABORT_SPEC_READER);
 					IncrementWriteAbortStats();
@@ -1281,6 +1286,43 @@ inline void wlpdstm::TxMixinv::Rollback() {
 	rolled_back = true;
 	//if(prog_thread_id == 0)
 	//	printf("%d %d %d\n", prog_thread_id, serial, try_commit);
+
+	if(last_abort != serial){
+		last_abort = serial;
+		abort_count = 0;
+	} else {
+		abort_count++;
+	}
+
+	if(abort_count == 100){
+		printf("serial %d start %d commit %d\n",serial, start_serial, commit_serial);
+		for(Word i=start_serial; i<=commit_serial; i++){
+			printf("write log serial %d\n", i);
+			for(WriteLog::iterator iter = prog_thread[prog_thread_id].owners[i & (specdepth - 1)]->write_log.begin();iter.hasNext();iter.next()) {
+					WriteLogEntry &entry = *iter;
+
+					printf("write lock %x write number %d\n", entry.write_lock, entry.write_number);
+					WriteWordLogEntry *curr = entry.head;
+					while(curr != NULL){
+						printf("	address %x\n", curr->address);
+						curr = curr->next;
+					}
+			}
+			printf("task read log serial %d\n", i);
+			for(TaskReadLog::iterator iter = prog_thread[prog_thread_id].owners[i & (specdepth - 1)]->task_read_log.begin();iter.hasNext();iter.next()) {
+					TaskReadLogEntry &entry = *iter;
+
+					printf("entry address %x serial %d write number %d\n",entry.address, entry.serial,entry.write_number);
+			}
+			printf("read log serial %d\n", i);
+			for(ReadLog::iterator iter = prog_thread[prog_thread_id].owners[i & (specdepth - 1)]->read_log.begin();iter.hasNext();iter.next()) {
+					ReadLogEntry &entry = *iter;
+
+					printf("entry address %x\n",entry.address);
+			}
+		}
+		scanf("");
+	}
 
 #ifdef SUPPORT_LOCAL_WRITES
 	// rollback local writes
@@ -1627,6 +1669,7 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 						entry->write_lock = write_lock;
 						entry->serial = log_entry->serial;
 						entry->write_number = log_entry->write_number;
+						entry->address = address;
 
 						// if it was written return from log
 						return MaskWord(word_log_entry);
@@ -1643,10 +1686,28 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 				entry->write_lock = write_lock;
 				entry->serial = log_entry->serial;
 				entry->write_number = log_entry->write_number;
+				entry->address = address;
 
 				// if it was written return from log
 				return MaskWord(word_log_entry);
 			} else {
+				//the address may be locked by a previous task
+				while(log_entry->old_entry != NULL){
+					log_entry = log_entry->old_entry;
+
+					word_log_entry = log_entry->FindWordLogEntry(address);
+
+					if(word_log_entry != NULL) {
+						TaskReadLogEntry *entry = task_read_log.get_next();
+						entry->write_lock = write_lock;
+						entry->serial = log_entry->serial;
+						entry->write_number = log_entry->write_number;
+						entry->address = address;
+
+						// if it was written return from log
+						return MaskWord(word_log_entry);
+					}
+				}
 				// if it was not written return from memory
 				return (Word)atomic_load_no_barrier(address);
 			}
@@ -1683,6 +1744,7 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 		ReadLogEntry *entry = read_log.get_next();
 		entry->read_lock = read_lock;
 		entry->version = version;
+		entry->address = address;
 
 		if(ShouldExtend(version)) {
 			if(!Extend()) {
