@@ -26,7 +26,7 @@ extern "C" {
 	// initialization
 	void wlpdstm_global_init(int nb_tasks);
 
-	void wlpdstm_thread_init(int ptid);
+	void wlpdstm_thread_init(int ptid, int taskid);
 
 	// start/end tx
 	void wlpdstm_start_tx() __attribute__ ((noinline));

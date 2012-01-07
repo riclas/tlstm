@@ -27,14 +27,14 @@ namespace wlpdstm {
 
 	template<typename T, bool INIT = true>
 	struct ThreadInitInvoker {
-		static void ThreadInit(T *obj, int ptid) {
-			obj->ThreadInit(ptid);
+		static void ThreadInit(T *obj, int ptid, int taskid) {
+			obj->ThreadInit(ptid, taskid);
 		}
 	};
 
 	template<typename T>
 	struct ThreadInitInvoker<T, false> {
-		static void ThreadInit(T *obj, int ptid) {
+		static void ThreadInit(T *obj, int ptid, int taskid) {
 			// do nothing
 		}
 	};
@@ -109,10 +109,10 @@ namespace wlpdstm {
 				GlobalInitInvoker<T, GLOBAL_INIT>::GlobalInit(nb_tasks);
 			}
 
-			static void ThreadInit(int ptid) {
+			static void ThreadInit(int ptid, int taskid) {
 				if(!init) {
 					val = new T();
-					ThreadInitInvoker<T, THREAD_INIT>::ThreadInit(val, ptid);
+					ThreadInitInvoker<T, THREAD_INIT>::ThreadInit(val, ptid, taskid);
 					init = true;
 				}
 			}

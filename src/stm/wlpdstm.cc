@@ -21,8 +21,8 @@ void wlpdstm_global_init(int nb_tasks) {
 	wlpdstm::CurrentTransaction::GlobalInit(nb_tasks);
 }
 
-void wlpdstm_thread_init(int ptid) {
-	wlpdstm::CurrentTransaction::ThreadInit(ptid);
+void wlpdstm_thread_init(int ptid, int taskid) {
+	wlpdstm::CurrentTransaction::ThreadInit(ptid, taskid);
 }
 
 void wlpdstm_start_tx() {
@@ -119,10 +119,6 @@ void wlpdstm_tx_free_desc(tx_desc *tx, void *ptr, size_t size) {
 
 void *wlpdstm_tx_malloc_desc(tx_desc *tx, size_t size) {
 	return ((wlpdstm::Transaction *)tx)->TxMalloc(size);
-}
-
-unsigned wlpdstm_inc_serial(tx_desc *tx, unsigned ptid) {
-	return ((wlpdstm::Transaction *)tx)->IncSerial(ptid);
 }
 
 void wlpdstm_print_stats() {

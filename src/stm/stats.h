@@ -57,6 +57,8 @@ namespace wlpdstm {
 #ifdef TS_EXTEND_STATS
 			EXTEND_SUCCESS,
 			EXTEND_FAILURE,
+			TLS_EXTEND_SUCCESS,
+			TLS_EXTEND_FAILURE,
 #endif /* TS_EXTEND_STATS */
 #ifdef DETAILED_STATS
 			FREE_DOMINATED,
@@ -111,6 +113,8 @@ namespace wlpdstm {
 #ifdef TS_EXTEND_STATS
 				"ExtendSuccess",
 				"ExtendFailure",
+				"TLSExtendSuccess",
+				"TLSExtendFailure",
 #endif /* TS_EXTEND_STATS */
 #ifdef DETAILED_STATS
 				"FreeDominated",

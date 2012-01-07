@@ -121,7 +121,7 @@ static volatile int stop;
 #define TM_SHUTDOWN()                   /* nothing */
 #endif /* COLLECT_STATS */
 
-#define TM_THREAD_ENTER(ptid)               wlpdstm_thread_init(ptid); \
+#define TM_THREAD_ENTER(ptid, taskid)               wlpdstm_thread_init(ptid, taskid); \
 										tx_desc *tx = wlpdstm_get_tx_desc()
 
 #define TM_THREAD_EXIT()                /* nothing */
@@ -659,7 +659,7 @@ typedef struct task_data {
 #define CONTAINS 2
 //#include "threadpool.c"
 
-#define NUM_OPS (1 << 22)
+#define NUM_OPS (1 << 18)
 //#define TEST_MATRIX_SIZE 4
 /*
 void task_threadpool(void *data){
@@ -692,10 +692,10 @@ void task_threadpool(void *data){
 */
 void* task_threads(void *data){
   task_data_t *d = (task_data_t *)data;
-  int serial = d->first_serial;
+  int serial = d->first_serial+d->nb_tasks;
 
   /* init thread */
-  TM_THREAD_ENTER(d->ptid);
+  TM_THREAD_ENTER(d->ptid, d->first_serial);
 
   //unsigned long aborts = 0;
 
@@ -796,13 +796,11 @@ void* task_matrix(void *data){
 	task_data_t *d = (task_data_t *)data;
     int i, serial, v1, v2, line, end = 0;
 
-    TM_THREAD_ENTER(d->ptid);
+    TM_THREAD_ENTER(d->ptid, d->first_serial);
 
     barrier_cross(d->barrier);
 
     while (AO_load_full(&stop) == 0 && !end) {
-
-    	INC_SERIAL(0);
 
 		line = d->ops[serial].value;
 
@@ -1164,7 +1162,7 @@ int main(int argc, char **argv)
 		data[index].barrier = &barrier;
 		data[index].ptid = i;
 		data[index].nb_tasks = nb_tasks;
-		data[index].first_serial = j+nb_tasks;
+		data[index].first_serial = j;
 		data[index].seed = rand();
 		data[index].range = range;
 		data[index].update = update;
@@ -1240,10 +1238,11 @@ int main(int argc, char **argv)
     updates += (nb_add + nb_remove);
   }
   printf("Set size      : %d (expected: %d)\n", set_size(set), size);
-  printf("Duration      : %d (ms)\n", duration);
-  printf("#txs          : %lu (%f / s)\n", (reads + updates)/nb_tasks, (reads + updates)/nb_tasks * 1000.0 / duration);
+  printf("Duration     : %d (ms)\n", duration);
+  printf("#tasks         : %lu (%f / s)\n", reads + updates, (reads + updates) * 1000.0 / duration);
+  printf("#txs             : %lu (%f / s)\n", (reads + updates)/nb_tasks, (reads + updates)/nb_tasks * 1000.0 / duration);
   printf("#read txs     : %lu (%f / s)\n", reads/nb_tasks, reads/nb_tasks * 1000.0 / duration);
-  printf("#update txs   : %lu (%f / s)\n", updates/nb_tasks, updates/nb_tasks * 1000.0 / duration);
+  printf("#update txs : %lu (%f / s)\n", updates/nb_tasks, updates/nb_tasks * 1000.0 / duration);
 
   TM_SHUTDOWN();
 
