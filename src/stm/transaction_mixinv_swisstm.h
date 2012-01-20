@@ -195,7 +195,7 @@ namespace wlpdstm {
 		static void InitializeSignaling();
 #endif /* SIGNALING */
 		
-		void ThreadInit(int ptid);
+		void ThreadInit(int ptid, int taskid);
 
 		unsigned IncSerial(unsigned ptid);
 
@@ -682,7 +682,7 @@ inline void wlpdstm::TxMixinv::InitializeSignaling() {
 }
 #endif /* SIGNALING */
 
-inline void wlpdstm::TxMixinv::ThreadInit(int ptid) {
+inline void wlpdstm::TxMixinv::ThreadInit(int ptid, int taskid) {
 	aborted_externally = false;
 
 #ifdef MM_EPOCH

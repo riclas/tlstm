@@ -264,10 +264,14 @@ int set_contains(intset_t *set, intptr_t val, int commit, int serial, int start,
 	int res = 0;
 
 	START_ID(2, commit, serial, start, last);
-    res = TMrbtree_contains(tx, set, val);
-    //res = TMrbtree_contains(tx, set, val+1);
-    //res = TMrbtree_contains(tx, set, val+2);
-    //res = TMrbtree_contains(tx, set, val+3);
+	res = TMrbtree_contains(tx, set, val);
+	res = TMrbtree_contains(tx, set, val+1);
+	res = TMrbtree_contains(tx, set, val+2);
+	res = TMrbtree_contains(tx, set, val+3);
+	/*res = TMrbtree_contains(tx, set, val+4);
+	res = TMrbtree_contains(tx, set, val+5);
+	res = TMrbtree_contains(tx, set, val+6);
+	res = TMrbtree_contains(tx, set, val+7);*/
 	COMMIT;
 
 	return res;
@@ -659,7 +663,7 @@ typedef struct task_data {
 #define CONTAINS 2
 //#include "threadpool.c"
 
-#define NUM_OPS (1 << 18)
+#define NUM_OPS (1 << 23)
 //#define TEST_MATRIX_SIZE 4
 /*
 void task_threadpool(void *data){
@@ -737,6 +741,8 @@ void* task_threads(void *data){
         d->nb_found++;
       d->nb_contains++;
     }*/
+	//if(serial == d->ops[serial].last)
+		//printf("%d\n",serial);
 	if (d->ops[serial].type == ADD) {
 	  // Add random value
 	  if (set_add(d->set, d->ops[serial].value, d->ops[serial].try_commit, serial, d->ops[serial].start, d->ops[serial].last TM_ARG_LAST)) {
@@ -794,7 +800,7 @@ void task2(void *data){
 
 void* task_matrix(void *data){
 	task_data_t *d = (task_data_t *)data;
-    int i, serial, v1, v2, line, end = 0;
+    int i, serial=0, v1, v2, line, end = 0;
 
     TM_THREAD_ENTER(d->ptid, d->first_serial);
 
@@ -941,7 +947,6 @@ int main(int argc, char **argv)
   pthread_attr_t attr;
   barrier_t barrier;
   struct timeval start, end;
-  struct timespec timeout;
   int duration = DEFAULT_DURATION;
   int initial = DEFAULT_INITIAL;
   int nb_threads = DEFAULT_NB_THREADS;
@@ -1053,9 +1058,6 @@ int main(int argc, char **argv)
   printf("Seed         : %d\n", seed);
   printf("Update rate  : %d\n", update);
 
-  timeout.tv_sec = duration / 1000;
-  timeout.tv_nsec = (duration % 1000) * 1000000;
-
   if ((data = (task_data_t *)malloc(nb_threads * nb_tasks * sizeof(task_data_t))) == NULL) {
     perror("malloc");
     exit(1);
@@ -1109,10 +1111,12 @@ int main(int argc, char **argv)
 	  }
 	  int add = 0;
 	  int start_serial = nb_tasks;
+	  int aux = 0;
 
 	  for(j = nb_tasks; j < NUM_OPS; j++){
-		  int aux = rand() % 100;
+		  //at the start of each tx define if it is read or write
 		  if(j % nb_tasks == 0){
+			  aux = rand() % 100;
 			  start_serial = j;
 		  }
 		  ops[i][j].start = start_serial;
@@ -1238,11 +1242,11 @@ int main(int argc, char **argv)
     updates += (nb_add + nb_remove);
   }
   printf("Set size      : %d (expected: %d)\n", set_size(set), size);
-  printf("Duration     : %d (ms)\n", duration);
-  printf("#tasks         : %lu (%f / s)\n", reads + updates, (reads + updates) * 1000.0 / duration);
-  printf("#txs             : %lu (%f / s)\n", (reads + updates)/nb_tasks, (reads + updates)/nb_tasks * 1000.0 / duration);
-  printf("#read txs     : %lu (%f / s)\n", reads/nb_tasks, reads/nb_tasks * 1000.0 / duration);
-  printf("#update txs : %lu (%f / s)\n", updates/nb_tasks, updates/nb_tasks * 1000.0 / duration);
+  printf("Duration      : %d (ms)\n", duration);
+  printf("#tasks        : %lu (%.2f / s)\n", reads + updates, (reads + updates) * 1000.0 / duration);
+  printf("#txs          : %lu (%.2f / s)\n", (reads + updates)/nb_tasks, (reads + updates)/nb_tasks * 1000.0 / duration);
+  printf("#read txs     : %lu (%.2f / s)\n", reads/nb_tasks, reads/nb_tasks * 1000.0 / duration);
+  printf("#update txs   : %lu (%.2f / s)\n", updates/nb_tasks, updates/nb_tasks * 1000.0 / duration);
 
   TM_SHUTDOWN();
 
