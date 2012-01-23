@@ -194,7 +194,9 @@ namespace wlpdstm {
 			RESTART_EXTERNAL,
 			RESTART_LOCK,
 			RESTART_VALIDATION,
-			RESTART_CLOCK_OVERFLOW
+			RESTART_CLOCK_OVERFLOW,
+			RESTART_TRANSACTION,
+			RESTART_WAITING
 		};
 
 		// possible statuses of aborted transactions
@@ -995,17 +997,21 @@ inline void wlpdstm::TxMixinv::TxCommit() {
 			prog_thread[prog_thread_id].last_completed_writer = start_serial-1;
 		}
 
+		abort_transaction = false;
+
 		atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, start_serial-1);
 		//prog_thread[prog_thread_id].last_completed_task = start_serial-1;
 
-		abort_transaction = false;
+		for(Word i = start_serial; i < serial; i++){
+			prog_thread[prog_thread_id].owners[i & (specdepth - 1)]->abort_transaction = true;
+		}
 
-		stats.IncrementStatistics(Statistics::ABORT_TASK_WRITE_LOCKED);
+		stats.IncrementStatistics(Statistics::ABORT_WRITE_LOCKED);
 		IncrementWriteAbortStats();
 #ifdef ADAPTIVE_LOCKING
 		++aborts;
 #endif /* ADAPTIVE_LOCKING */
-		TxRestart(RESTART_LOCK);
+		TxRestart(RESTART_TRANSACTION);
 	}
 	//we also need to check after the loop, for the case when the task
 	//doesn't get inside the loop.
@@ -1132,13 +1138,14 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 				TxRestart(RESTART_LOCK);
 			}*/
 
-			if(abort_inthread || prog_thread[prog_thread_id].last_completed_task == start_serial-1){
+			if(abort_transaction/* || prog_thread[prog_thread_id].last_completed_task == start_serial-1*/){
+				abort_transaction = false;
 				stats.IncrementStatistics(Statistics::ABORT_WRITE_LOCKED);
 				IncrementWriteAbortStats();
 		#ifdef ADAPTIVE_LOCKING
 				++aborts;
 		#endif /* ADAPTIVE_LOCKING */
-				TxRestart(RESTART_LOCK);
+				TxRestart(RESTART_WAITING);
 			}
 		}
 
@@ -1209,7 +1216,7 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 			if((abort_serial = ValidateCommit()) > 0) {
 	#endif /* commit_ts */
 				ReleaseReadLocks();
-				//abort_serial = start_serial;
+				abort_serial = start_serial;
 				if(prog_thread[prog_thread_id].last_completed_writer >= abort_serial)
 					//atomic_store_release(&prog_thread[prog_thread_id].last_completed_writer, abort_serial-1);
 					prog_thread[prog_thread_id].last_completed_writer = abort_serial-1;
@@ -1219,7 +1226,7 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 
 				//printf("%d %d \n", serial, abort_serial);
 				for(Word i = abort_serial; i < serial; i++){
-					prog_thread[prog_thread_id].owners[i & (specdepth - 1)]->abort_inthread = true;
+					prog_thread[prog_thread_id].owners[i & (specdepth - 1)]->abort_transaction = true;
 				}
 				stats.IncrementStatistics(Statistics::ABORT_COMMIT_VALIDATE);
 				IncrementReadAbortStats();
@@ -1321,7 +1328,7 @@ inline void wlpdstm::TxMixinv::Rollback(RestartCause cause) {
 	if(rolled_back) {
 		return;
 	}
-//printf("%d\n", serial);
+//printf("%d %d\n", serial, cause);
 	rolled_back = true;
 	//if(prog_thread_id == 0)
 	//	printf("%d %d %d\n", prog_thread_id, serial, try_commit);
@@ -1481,7 +1488,7 @@ inline void wlpdstm::TxMixinv::LockMemoryStripe(WriteLock *write_lock, Word *add
 						}
 					}*/
 					if(abort_outthread){
-						if(serial == commit_serial){
+						if(try_commit){
 							while(prog_thread[prog_thread_id].last_completed_task != serial -1/* && abort_transaction == false*/);
 
 							for(Word i = commit_serial; i >= start_serial; i--){
@@ -1495,17 +1502,24 @@ inline void wlpdstm::TxMixinv::LockMemoryStripe(WriteLock *write_lock, Word *add
 							if(prog_thread[prog_thread_id].last_completed_writer >= start_serial){
 								prog_thread[prog_thread_id].last_completed_writer = start_serial-1;
 							}
+							abort_transaction = false;
 
 							atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, start_serial-1);
 
-							abort_transaction = false;
-
+							for(Word i = start_serial; i < serial; i++){
+								prog_thread[prog_thread_id].owners[i & (specdepth - 1)]->abort_transaction = true;
+							}
 						}else{
 							prog_thread[prog_thread_id].owners[commit_serial & (specdepth - 1)]->abort_transaction = true;
 
+							while(prog_thread[prog_thread_id].last_completed_task != serial-1);
+
 							atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, serial);
 
-							while(prog_thread[prog_thread_id].last_completed_task != start_serial-1);
+							//while(prog_thread[prog_thread_id].last_completed_task != start_serial-1);
+							while(!abort_transaction);
+
+							abort_transaction = false;
 						}
 					}
 
@@ -1530,6 +1544,7 @@ inline void wlpdstm::TxMixinv::LockMemoryStripe(WriteLock *write_lock, Word *add
 				}
 			} else {
 				if(entry->serial < serial){
+					//we abort if some task before the locking one has not completed yet
 					if(atomic_load_acquire(&prog_thread[prog_thread_id].last_completed_task) < entry->serial){
 						//printf("abort task write locked\n");
 						stats.IncrementStatistics(Statistics::ABORT_TASK_WRITE_LOCKED);
@@ -1541,15 +1556,16 @@ inline void wlpdstm::TxMixinv::LockMemoryStripe(WriteLock *write_lock, Word *add
 						TxRestart(RESTART_VALIDATION);
 					}
 				} else {
-					prog_thread[prog_thread_id].owners[entry->serial & (specdepth - 1)]->abort_inthread = true;
-
 					if(abort_outthread){
 						prog_thread[prog_thread_id].owners[commit_serial & (specdepth - 1)]->abort_transaction = true;
 
+						while(prog_thread[prog_thread_id].last_completed_task != serial-1);
+
 						atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, serial);
 
-						while(prog_thread[prog_thread_id].last_completed_task != start_serial-1);
-
+						//while(prog_thread[prog_thread_id].last_completed_task != start_serial-1);
+						while(!abort_transaction);
+						abort_transaction = false;
 						stats.IncrementStatistics(Statistics::ABORT_TASK_WRITE_LOCKED);
 						IncrementWriteAbortStats();
 		#ifdef ADAPTIVE_LOCKING
@@ -1558,6 +1574,8 @@ inline void wlpdstm::TxMixinv::LockMemoryStripe(WriteLock *write_lock, Word *add
 
 						TxRestart(RESTART_VALIDATION);
 					}
+					prog_thread[prog_thread_id].owners[entry->serial & (specdepth - 1)]->abort_inthread = true;
+
 					// read version again
 					lock_value = (WriteLock)atomic_load_acquire(write_lock);
 					entry = (WriteLogEntry *)lock_value;
