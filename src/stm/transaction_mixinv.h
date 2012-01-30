@@ -263,6 +263,10 @@ namespace wlpdstm {
 		 */
 		void Rollback(RestartCause cause);
 
+		void RollbackTransaction(Word start_s);
+
+		void ReadyToAbortTransaction();
+
 		/**
 		 * Rollback transaction's effects and jump to the beginning with flag specifying abort.
 		 */		
@@ -985,26 +989,7 @@ inline void wlpdstm::TxMixinv::TxCommit() {
 	}
 
 	if(abort_transaction){
-		for(Word i = commit_serial; i >= start_serial; i--){
-			for(WriteLog::iterator iter = prog_thread[prog_thread_id].owners[i & (specdepth - 1)]->write_log.begin();iter.hasNext();iter.next()) {
-				WriteLogEntry &entry = *iter;
-
-				*entry.write_lock = (Word)entry.old_entry;
-			}
-			prog_thread[prog_thread_id].owners[i & (specdepth - 1)]->write_log.clear();
-		}
-		if(prog_thread[prog_thread_id].last_completed_writer >= start_serial){
-			prog_thread[prog_thread_id].last_completed_writer = start_serial-1;
-		}
-
-		abort_transaction = false;
-
-		atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, start_serial-1);
-		//prog_thread[prog_thread_id].last_completed_task = start_serial-1;
-
-		for(Word i = start_serial; i < serial; i++){
-			prog_thread[prog_thread_id].owners[i & (specdepth - 1)]->abort_transaction = true;
-		}
+		RollbackTransaction(start_serial);
 
 		stats.IncrementStatistics(Statistics::ABORT_WRITE_LOCKED);
 		IncrementWriteAbortStats();
@@ -1108,8 +1093,8 @@ inline void wlpdstm::TxMixinv::TxCommit() {
 }
 
 inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
-	Word ts = valid_ts;
 	bool read_only = write_log.empty();
+	Word ts = valid_ts;
 
 	if(!try_commit){
 		if(!read_only){
@@ -1177,6 +1162,11 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 		//END of an intermediate task
 	} else {
 		if(!read_only || prog_thread[prog_thread_id].last_completed_writer >= start_serial) {
+			/*for(Word i = start_serial; i < serial; i++){
+				if(prog_thread[prog_thread_id].owners[i & (specdepth - 1)]->valid_ts < valid_ts){
+					valid_ts = prog_thread[prog_thread_id].owners[i & (specdepth - 1)]->valid_ts;
+				}
+			}*/
 			// first lock all read locks
 			for(Word i = start_serial; i <= serial; i++){
 				for(WriteLog::iterator iter = prog_thread[prog_thread_id].owners[i & (specdepth - 1)]->write_log.begin();iter.hasNext();iter.next()) {
@@ -1211,23 +1201,15 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 			// overlap with the write set of another and this would pass unnoticed
 			Word abort_serial;
 	#ifdef COMMIT_TS_INC
-			if(ts != valid_ts + 1 && (abort_serial = ValidateCommit()) > 0) {
+			if(/*ts != valid_ts + 1 && */(abort_serial = ValidateCommit()) > 0) {
 	#elif defined COMMIT_TS_GV4
 			if((abort_serial = ValidateCommit()) > 0) {
 	#endif /* commit_ts */
 				ReleaseReadLocks();
-				abort_serial = start_serial;
-				if(prog_thread[prog_thread_id].last_completed_writer >= abort_serial)
-					//atomic_store_release(&prog_thread[prog_thread_id].last_completed_writer, abort_serial-1);
-					prog_thread[prog_thread_id].last_completed_writer = abort_serial-1;
+				//abort_serial = start_serial;
 
-				atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, abort_serial-1);
-				//prog_thread[prog_thread_id].last_completed_task = abort_serial-1;
+				RollbackTransaction(abort_serial);
 
-				//printf("%d %d \n", serial, abort_serial);
-				for(Word i = abort_serial; i < serial; i++){
-					prog_thread[prog_thread_id].owners[i & (specdepth - 1)]->abort_transaction = true;
-				}
 				stats.IncrementStatistics(Statistics::ABORT_COMMIT_VALIDATE);
 				IncrementReadAbortStats();
 	#ifdef ADAPTIVE_LOCKING
@@ -1382,10 +1364,10 @@ inline void wlpdstm::TxMixinv::Rollback(RestartCause cause) {
 	for(WriteLog::iterator iter = write_log.begin();iter.hasNext();iter.next()) {
 		WriteLogEntry &entry = *iter;
 
-		while(!atomic_cas_release(entry.write_lock, &entry, entry.old_entry));
-		/*while(*entry.write_lock != (Word)&entry);
+		//while(!atomic_cas_release(entry.write_lock, &entry, entry.old_entry));
+		//while(*entry.write_lock != (Word)&entry);
 
-		*entry.write_lock = (Word)entry.old_entry;*/
+		*entry.write_lock = (Word)entry.old_entry;
 	}
 	/*if(abort_outthread && cause == RESTART_LOCK){
 		fetch_and_inc_full(&prog_thread[prog_thread_id].count_aborted);
@@ -1409,6 +1391,40 @@ inline void wlpdstm::TxMixinv::Rollback(RestartCause cause) {
 	mm.TxAbort();
 
 	stats.IncrementStatistics(Statistics::ABORT);
+}
+
+inline void wlpdstm::TxMixinv::RollbackTransaction(Word start_s){
+	for(Word i = commit_serial; i >= start_s; i--){
+		for(WriteLog::iterator iter = prog_thread[prog_thread_id].owners[i & (specdepth - 1)]->write_log.begin();iter.hasNext();iter.next()) {
+			WriteLogEntry &entry = *iter;
+
+			*entry.write_lock = (Word)entry.old_entry;
+		}
+		prog_thread[prog_thread_id].owners[i & (specdepth - 1)]->write_log.clear();
+	}
+	if(prog_thread[prog_thread_id].last_completed_writer >= start_s){
+		prog_thread[prog_thread_id].last_completed_writer = start_s-1;
+	}
+	abort_transaction = false;
+
+	atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, start_s-1);
+
+	for(Word i = start_s; i < serial; i++){
+		prog_thread[prog_thread_id].owners[i & (specdepth - 1)]->abort_transaction = true;
+	}
+}
+
+inline void wlpdstm::TxMixinv::ReadyToAbortTransaction(){
+	prog_thread[prog_thread_id].owners[commit_serial & (specdepth - 1)]->abort_transaction = true;
+
+	while(prog_thread[prog_thread_id].last_completed_task != serial-1);
+
+	atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, serial);
+
+	//while(prog_thread[prog_thread_id].last_completed_task != start_serial-1);
+	while(!abort_transaction);
+
+	abort_transaction = false;
 }
 
 inline void wlpdstm::TxMixinv::IncrementReadAbortStats() {
@@ -1491,35 +1507,9 @@ inline void wlpdstm::TxMixinv::LockMemoryStripe(WriteLock *write_lock, Word *add
 						if(try_commit){
 							while(prog_thread[prog_thread_id].last_completed_task != serial -1/* && abort_transaction == false*/);
 
-							for(Word i = commit_serial; i >= start_serial; i--){
-								for(WriteLog::iterator iter = prog_thread[prog_thread_id].owners[i & (specdepth - 1)]->write_log.begin();iter.hasNext();iter.next()) {
-									WriteLogEntry &entry = *iter;
-
-									*entry.write_lock = (Word)entry.old_entry;
-								}
-								prog_thread[prog_thread_id].owners[i & (specdepth - 1)]->write_log.clear();
-							}
-							if(prog_thread[prog_thread_id].last_completed_writer >= start_serial){
-								prog_thread[prog_thread_id].last_completed_writer = start_serial-1;
-							}
-							abort_transaction = false;
-
-							atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, start_serial-1);
-
-							for(Word i = start_serial; i < serial; i++){
-								prog_thread[prog_thread_id].owners[i & (specdepth - 1)]->abort_transaction = true;
-							}
+							RollbackTransaction(start_serial);
 						}else{
-							prog_thread[prog_thread_id].owners[commit_serial & (specdepth - 1)]->abort_transaction = true;
-
-							while(prog_thread[prog_thread_id].last_completed_task != serial-1);
-
-							atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, serial);
-
-							//while(prog_thread[prog_thread_id].last_completed_task != start_serial-1);
-							while(!abort_transaction);
-
-							abort_transaction = false;
+							ReadyToAbortTransaction();
 						}
 					}
 
@@ -1557,15 +1547,8 @@ inline void wlpdstm::TxMixinv::LockMemoryStripe(WriteLock *write_lock, Word *add
 					}
 				} else {
 					if(abort_outthread){
-						prog_thread[prog_thread_id].owners[commit_serial & (specdepth - 1)]->abort_transaction = true;
+						ReadyToAbortTransaction();
 
-						while(prog_thread[prog_thread_id].last_completed_task != serial-1);
-
-						atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, serial);
-
-						//while(prog_thread[prog_thread_id].last_completed_task != start_serial-1);
-						while(!abort_transaction);
-						abort_transaction = false;
 						stats.IncrementStatistics(Statistics::ABORT_TASK_WRITE_LOCKED);
 						IncrementWriteAbortStats();
 		#ifdef ADAPTIVE_LOCKING
