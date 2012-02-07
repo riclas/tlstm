@@ -268,10 +268,18 @@ int set_contains(intset_t *set, intptr_t val, int commit, int serial, int start,
 	res = TMrbtree_contains(tx, set, val+1);
 	res = TMrbtree_contains(tx, set, val+2);
 	res = TMrbtree_contains(tx, set, val+3);
-	/*res = TMrbtree_contains(tx, set, val+4);
+	res = TMrbtree_contains(tx, set, val+4);
 	res = TMrbtree_contains(tx, set, val+5);
 	res = TMrbtree_contains(tx, set, val+6);
-	res = TMrbtree_contains(tx, set, val+7);*/
+	res = TMrbtree_contains(tx, set, val+7);
+	/*res = TMrbtree_contains(tx, set, val+8);
+	res = TMrbtree_contains(tx, set, val+9);
+	res = TMrbtree_contains(tx, set, val+10);
+	res = TMrbtree_contains(tx, set, val+11);
+	res = TMrbtree_contains(tx, set, val+12);
+	res = TMrbtree_contains(tx, set, val+13);
+	res = TMrbtree_contains(tx, set, val+14);
+	res = TMrbtree_contains(tx, set, val+15);*/
 	COMMIT;
 
 	return res;
