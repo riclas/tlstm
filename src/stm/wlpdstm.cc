@@ -25,8 +25,8 @@ void wlpdstm_thread_init(int ptid, int taskid) {
 	wlpdstm::CurrentTransaction::ThreadInit(ptid, taskid);
 }
 
-void wlpdstm_start_tx() {
-	wlpdstm::CurrentTransaction::TxStart();
+void wlpdstm_start_tx(int commit, int serial, int start, int last) {
+	wlpdstm::CurrentTransaction::TxStart(0, commit, serial, start, last);
 }
 
 void wlpdstm_start_tx_id(int lexical_tx_id) {

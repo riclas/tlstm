@@ -195,6 +195,7 @@ namespace wlpdstm {
 			NO_RESTART = 0,
 			RESTART_EXTERNAL,
 			RESTART_LOCK,
+			RESTART_LOCK_TASK,
 			RESTART_VALIDATION,
 			RESTART_CLOCK_OVERFLOW,
 			RESTART_TRANSACTION,
@@ -960,8 +961,8 @@ inline void wlpdstm::TxMixinv::TxCommit() {
 	it improved performance somehow
 	we need to check if the current task was told to abort inside the loop
 	*/
-	//while(prog_thread[prog_thread_id].last_completed_task != serial-1){
-	while(atomic_load_acquire(&prog_thread[prog_thread_id].last_completed_task) != serial-1){
+	while(prog_thread[prog_thread_id].last_completed_task != serial-1){
+	//while(atomic_load_acquire(&prog_thread[prog_thread_id].last_completed_task) != serial-1){
 /*		if(abort_outthread){
 			while(prog_thread[prog_thread_id].last_completed_task != start_serial-1){
 				if(prog_thread[prog_thread_id].last_completed_task == serial-1){
@@ -988,7 +989,7 @@ inline void wlpdstm::TxMixinv::TxCommit() {
 	#ifdef ADAPTIVE_LOCKING
 			++aborts;
 	#endif /* ADAPTIVE_LOCKING */
-			TxRestart(RESTART_LOCK);
+			TxRestart(RESTART_LOCK_TASK);
 		}
 	}
 
@@ -1000,7 +1001,7 @@ inline void wlpdstm::TxMixinv::TxCommit() {
 #ifdef ADAPTIVE_LOCKING
 		++aborts;
 #endif /* ADAPTIVE_LOCKING */
-		TxRestart(RESTART_TRANSACTION);
+		TxRestart(RESTART_LOCK);
 	}
 	//we also need to check after the loop, for the case when the task
 	//doesn't get inside the loop.
@@ -1024,7 +1025,7 @@ inline void wlpdstm::TxMixinv::TxCommit() {
 #ifdef ADAPTIVE_LOCKING
 		++aborts;
 #endif /* ADAPTIVE_LOCKING */
-		TxRestart(RESTART_LOCK);
+		TxRestart(RESTART_LOCK_TASK);
 	}
 
 	if(prog_thread[prog_thread_id].last_completed_writer != last_writer){
@@ -1063,12 +1064,12 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 		if(!read_only){
 			prog_thread[prog_thread_id].last_completed_writer = serial;
 		}
-		atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, serial);
-		//prog_thread[prog_thread_id].last_completed_task = serial;
+		//atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, serial);
+		prog_thread[prog_thread_id].last_completed_task = serial;
 
 		//needs to be "<" because a task of a new tx may have already completed
-		//while(prog_thread[prog_thread_id].last_completed_task < commit_serial){
-		while(atomic_load_acquire(&prog_thread[prog_thread_id].last_completed_task) < commit_serial){
+		while(prog_thread[prog_thread_id].last_completed_task < commit_serial){
+		//while(atomic_load_acquire(&prog_thread[prog_thread_id].last_completed_task) < commit_serial){
 			/*if(abort_outthread){
 				while(prog_thread[prog_thread_id].last_completed_task >= serial){
 					if(prog_thread[prog_thread_id].last_completed_task == commit_serial){
@@ -1093,7 +1094,7 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 		#ifdef ADAPTIVE_LOCKING
 				++aborts;
 		#endif /* ADAPTIVE_LOCKING */
-				TxRestart(RESTART_WAITING);
+				TxRestart(RESTART_LOCK);
 			}
 		}
 
@@ -1132,11 +1133,11 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 				}
 			}*/
 			if((abort_serial = ValidateThread()) > 0) {
-				abort_serial = start_serial;
+				//abort_serial = start_serial;
 
 				RollbackTransaction(abort_serial);
 
-				stats.IncrementStatistics(Statistics::ABORT_READ_LOCKED);
+				stats.IncrementStatistics(Statistics::ABORT_COMMIT_VALIDATE);
 				IncrementReadAbortStats();
 	#ifdef ADAPTIVE_LOCKING
 				++aborts;
@@ -1183,7 +1184,7 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 			if((abort_serial = ValidateCommit()) > 0) {
 	#endif /* commit_ts */
 				ReleaseReadLocks();
-				abort_serial = start_serial;
+				//abort_serial = start_serial;
 
 				RollbackTransaction(abort_serial);
 
@@ -1224,8 +1225,8 @@ inline wlpdstm::TxMixinv::RestartCause wlpdstm::TxMixinv::TxTryCommit() {
 		}
 		//TLSTM
 		//tell the next task it can start commiting
-		//prog_thread[prog_thread_id].last_completed_task = serial;
-		atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, serial);
+		prog_thread[prog_thread_id].last_completed_task = serial;
+		//atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, serial);
 
 		stats.IncrementStatistics(Statistics::COMMIT);
 	}
@@ -1287,7 +1288,7 @@ inline void wlpdstm::TxMixinv::Rollback(RestartCause cause) {
 	if(rolled_back) {
 		return;
 	}
-//printf("%d %d\n", serial, cause);
+
 	rolled_back = true;
 	//if(prog_thread_id == 0)
 	//	printf("%d %d %d\n", prog_thread_id, serial, try_commit);
@@ -1341,10 +1342,10 @@ inline void wlpdstm::TxMixinv::Rollback(RestartCause cause) {
 	for(WriteLog::iterator iter = write_log.begin();iter.hasNext();iter.next()) {
 		WriteLogEntry &entry = *iter;
 
-		while(!atomic_cas_release(entry.write_lock, &entry, entry.old_entry));
+		//while(!atomic_cas_release(entry.write_lock, &entry, entry.old_entry));
 		//while(*entry.write_lock != (Word)&entry);
 
-		//*entry.write_lock = (Word)entry.old_entry;
+		*entry.write_lock = (Word)entry.old_entry;
 	}
 	/*if(abort_outthread && cause == RESTART_LOCK){
 		fetch_and_inc_full(&prog_thread[prog_thread_id].count_aborted);
@@ -1396,7 +1397,8 @@ inline void wlpdstm::TxMixinv::RollbackTransaction(Word start_s){
 		prog_thread[prog_thread_id].last_completed_writer = start_s-1;
 	}
 
-	atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, start_s-1);
+	//atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, start_s-1);
+	prog_thread[prog_thread_id].last_completed_task = start_s-1;
 
 	abort_transaction = false;
 
@@ -1415,7 +1417,8 @@ inline void wlpdstm::TxMixinv::ReadyToAbortTransaction(){
 	}*/
 	while(prog_thread[prog_thread_id].last_completed_task != serial-1);
 
-	atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, serial);
+	//atomic_store_release(&prog_thread[prog_thread_id].last_completed_task, serial);
+	prog_thread[prog_thread_id].last_completed_task = serial;
 
 	//while(prog_thread[prog_thread_id].last_completed_task != start_serial-1);
 	while(!abort_transaction);
@@ -1545,7 +1548,8 @@ inline void wlpdstm::TxMixinv::LockMemoryStripe(WriteLock *write_lock, Word *add
 			} else {
 				if(entry->serial < serial){
 					//we abort if some task before the locking one has not completed yet
-					if(atomic_load_acquire(&prog_thread[prog_thread_id].last_completed_task) < entry->serial){
+					if(prog_thread[prog_thread_id].last_completed_task < entry->serial){
+					//if(prog_thread[prog_thread_id].last_completed_task != serial-1){
 						//printf("abort task write locked\n");
 						stats.IncrementStatistics(Statistics::ABORT_TASK_WRITE_LOCKED);
 						IncrementWriteAbortStats();
@@ -1553,19 +1557,19 @@ inline void wlpdstm::TxMixinv::LockMemoryStripe(WriteLock *write_lock, Word *add
 						++aborts;
 		#endif /* ADAPTIVE_LOCKING */
 
-						TxRestart(RESTART_VALIDATION);
+						TxRestart(RESTART_LOCK_TASK);
 					}
 				} else {
 					if(abort_outthread){
 						ReadyToAbortTransaction();
 
-						stats.IncrementStatistics(Statistics::ABORT_TASK_WRITE_LOCKED);
+						stats.IncrementStatistics(Statistics::ABORT_WRITE_LOCKED);
 						IncrementWriteAbortStats();
 		#ifdef ADAPTIVE_LOCKING
 						++aborts;
 		#endif /* ADAPTIVE_LOCKING */
 
-						TxRestart(RESTART_VALIDATION);
+						TxRestart(RESTART_LOCK);
 					}
 					prog_thread[prog_thread_id].owners[entry->serial % specdepth]->abort_inthread = true;
 
@@ -1778,42 +1782,42 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 		TxRestart(RESTART_VALIDATION);
 	}
 
-	if(read_log.get_size() == 2048){
+	//if(read_log.get_size() == 2048){
 		/*printf("ptid %d serial %d start %d commit %d\n",prog_thread_id, serial, start_serial, commit_serial);
-				for(Word i=start_serial; i<=commit_serial; i++){
-					printf("\nwrite log serial %d\n", i);
-					for(WriteLog::iterator iter = prog_thread[prog_thread_id].owners[i % specdepth]->write_log.begin();iter.hasNext();iter.next()) {
-							WriteLogEntry &entry = *iter;
+		for(Word i=start_serial; i<=commit_serial; i++){
+			printf("\nwrite log serial %d\n", i);
+			for(WriteLog::iterator iter = prog_thread[prog_thread_id].owners[i % specdepth]->write_log.begin();iter.hasNext();iter.next()) {
+					WriteLogEntry &entry = *iter;
 
-							printf("write lock %x write number %d\n", entry.write_lock, entry.write_number);
-							WriteWordLogEntry *curr = entry.head;
-							while(curr != NULL){
-								printf("	address %x\n", curr->address);
-								curr = curr->next;
-							}
+					printf("write lock %x write number %d\n", entry.write_lock, entry.write_number);
+					WriteWordLogEntry *curr = entry.head;
+					while(curr != NULL){
+						printf("	address %x\n", curr->address);
+						curr = curr->next;
 					}
-					printf("task read log serial %d\n", i);
-					for(TaskReadLog::iterator iter = prog_thread[prog_thread_id].owners[i % specdepth]->task_read_log.begin();iter.hasNext();iter.next()) {
-							TaskReadLogEntry &entry = *iter;
+			}
+			printf("task read log serial %d\n", i);
+			for(TaskReadLog::iterator iter = prog_thread[prog_thread_id].owners[i % specdepth]->task_read_log.begin();iter.hasNext();iter.next()) {
+					TaskReadLogEntry &entry = *iter;
 
-							printf("entry write-lock %x serial %d write number %d\n", entry.write_lock, entry.serial,entry.write_number);
-					}
-					printf("read log serial %d\n", i);
-					for(ReadLog::iterator iter = prog_thread[prog_thread_id].owners[i % specdepth]->read_log.begin();iter.hasNext();iter.next()) {
-							ReadLogEntry &entry = *iter;
+					printf("entry write-lock %x serial %d write number %d\n", entry.write_lock, entry.serial,entry.write_number);
+			}
+			printf("read log serial %d\n", i);
+			for(ReadLog::iterator iter = prog_thread[prog_thread_id].owners[i % specdepth]->read_log.begin();iter.hasNext();iter.next()) {
+					ReadLogEntry &entry = *iter;
 
-							printf("entry address %x last_writer %d\n",entry.address, entry.last_writer);
-					}
-				}
-				getchar();*/
+					printf("entry address %x last_writer %d\n",entry.address, entry.last_writer);
+			}
+		}
+		getchar();*/
 
-		while(prog_thread[prog_thread_id].last_completed_task != serial-1){
+		/*while(prog_thread[prog_thread_id].last_completed_task != serial-1){
 			if(abort_inthread){
 				stats.IncrementStatistics(Statistics::ABORT_TASK_WRITE_LOCKED);
 				IncrementWriteAbortStats();
 		#ifdef ADAPTIVE_LOCKING
 				++aborts;
-		#endif /* ADAPTIVE_LOCKING */
+		#endif // ADAPTIVE_LOCKING
 				TxRestart(RESTART_LOCK);
 			}
 			if(abort_outthread){
@@ -1834,11 +1838,11 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 			IncrementWriteAbortStats();
 	#ifdef ADAPTIVE_LOCKING
 			++aborts;
-	#endif /* ADAPTIVE_LOCKING */
+	#endif // ADAPTIVE_LOCKING
 			TxRestart(RESTART_VALIDATION);
 		}
 	}
-
+*/
 	WriteLock *write_lock = map_address_to_write_lock(address);
 	WriteLogEntry *log_entry = (WriteLogEntry *)atomic_load_no_barrier(write_lock);
 
@@ -1850,30 +1854,39 @@ inline Word wlpdstm::TxMixinv::ReadWordInner(Word *address) {
 		if(log_entry != NULL){
 			//this write-lock is locked by me or a previous task
 			if(log_entry->serial == serial){
-				WriteWordLogEntry *word_log_entry = log_entry->FindWordLogEntry(address);
+				do {
+					WriteWordLogEntry *word_log_entry = log_entry->FindWordLogEntry(address);
 
-				if(word_log_entry != NULL) {
-					// if it was written return from log
-					return MaskWord(word_log_entry);
-				}
-				log_entry = log_entry->old_entry;
+					if(word_log_entry != NULL) {
+						// if it was written return from log
+						return MaskWord(word_log_entry);
+					}
+					log_entry = log_entry->old_entry;
+				} while(log_entry != NULL);
+
+				// if it was not written return from memory
+				return (Word)atomic_load_no_barrier(address);
 			}
-			while(log_entry != NULL){
-				WriteWordLogEntry *word_log_entry = log_entry->FindWordLogEntry(address);
+			//it is locked by previous task(s) only, we get the last completed value
+			if(prog_thread[prog_thread_id].last_completed_task >= log_entry->serial){
+				TaskReadLogEntry *entry = task_read_log.get_next();
+				entry->write_lock = write_lock;
+				entry->serial = log_entry->serial;
+				entry->write_number = log_entry->write_number;
 
-				if(word_log_entry != NULL) {
-					TaskReadLogEntry *entry = task_read_log.get_next();
-					entry->write_lock = write_lock;
-					entry->serial = log_entry->serial;
-					entry->write_number = log_entry->write_number;
+				do {
+					WriteWordLogEntry *word_log_entry = log_entry->FindWordLogEntry(address);
 
-					// if it was written return from log
-					return MaskWord(word_log_entry);
-				}
-				log_entry = log_entry->old_entry;
+					if(word_log_entry != NULL) {
+						// if it was written return from log
+						return MaskWord(word_log_entry);
+					}
+					log_entry = log_entry->old_entry;
+				} while(log_entry != NULL);
+
+				// if it was not written return from memory
+				return (Word)atomic_load_no_barrier(address);
 			}
-			// if it was not written return from memory
-			return (Word)atomic_load_no_barrier(address);
 		}
 /*		if(log_entry->serial == serial){
 			WriteWordLogEntry *word_log_entry = log_entry->FindWordLogEntry(address);
@@ -2240,7 +2253,7 @@ inline void wlpdstm::TxMixinv::TxRestart(RestartCause cause) {
 	atomic_store_release(&tx_status, (Word)TX_RESTARTED);
 
 #ifdef WAIT_ON_SUCC_ABORTS
-	if(cause == RESTART_LOCK) {
+	if(cause == RESTART_LOCK || cause == RESTART_LOCK_TASK) {
 		if(++succ_aborts > SUCC_ABORTS_MAX) {
 			succ_aborts = SUCC_ABORTS_MAX;
 		}
