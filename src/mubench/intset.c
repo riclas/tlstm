@@ -217,6 +217,9 @@ int set_add(intset_t *set, intptr_t val, int commit, int serial, int start, int 
 
 	START_ID(0, commit, serial, start, last);
 	res = !TMrbtree_insert(tx, set, val, val);
+	//next line is for swisstm only
+	//res = TMrbtree_delete(tx, set, val);
+
 	COMMIT;
 
 	return res;
@@ -240,7 +243,9 @@ int set_remove(intset_t *set, intptr_t val, int commit, int serial, int start, i
 	int res = 0;
 
 	START_ID(1, commit, serial, start, last);
-    res = TMrbtree_delete(tx, set, val);
+	//next line is for swisstm only
+	//res = !TMrbtree_insert(tx, set, val, val);
+	res = TMrbtree_delete(tx, set, val);
 	COMMIT;
 
 	return res;
@@ -671,7 +676,7 @@ typedef struct task_data {
 #define CONTAINS 2
 //#include "threadpool.c"
 
-#define NUM_OPS (1 << 23)
+#define NUM_OPS (1 << 22)
 //#define TEST_MATRIX_SIZE 4
 /*
 void task_threadpool(void *data){
@@ -1145,6 +1150,9 @@ int main(int argc, char **argv)
 				  add = (add + 1) % 2001;
 			  //when "odd" remove a node
 			  } else {
+				  //next line is for swisstm only
+				  //value = (rand() % range) + 1;
+
 				  ops[i][j].type = REMOVE;
 				  ops[i][j].value = value;
 				  add = (add + 1) % 2001;
