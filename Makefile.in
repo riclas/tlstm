@@ -1,7 +1,7 @@
 ########################################
 # set general variables
-SOLARIS_CPP = /home/dragojev/local/gcc/bin/g++
-SOLARIS_CC = /home/dragojev/local/gcc/bin/gcc
+SOLARIS_CPP = /export/home/filipe/local/gcc/bin/g++
+SOLARIS_CC = /export/home/filipe/local/gcc/bin/gcc
 
 GNU_CPP = g++
 GNU_CC = gcc

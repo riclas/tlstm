@@ -266,25 +266,12 @@ int set_remove(intset_t *set, intptr_t val)
 #ifdef MUBENCH_WLPDSTM
 int set_contains(intset_t *set, intptr_t val, int commit, int serial, int start, int last, tx_desc *tx)
 {
-	int res = 0;
+	int res = 0, i;
 
 	START_ID(2, commit, serial, start, last);
-	res = TMrbtree_contains(tx, set, val);
-	res = TMrbtree_contains(tx, set, val+1);
-	res = TMrbtree_contains(tx, set, val+2);
-	res = TMrbtree_contains(tx, set, val+3);
-	res = TMrbtree_contains(tx, set, val+4);
-	res = TMrbtree_contains(tx, set, val+5);
-	res = TMrbtree_contains(tx, set, val+6);
-	res = TMrbtree_contains(tx, set, val+7);
-	/*res = TMrbtree_contains(tx, set, val+8);
-	res = TMrbtree_contains(tx, set, val+9);
-	res = TMrbtree_contains(tx, set, val+10);
-	res = TMrbtree_contains(tx, set, val+11);
-	res = TMrbtree_contains(tx, set, val+12);
-	res = TMrbtree_contains(tx, set, val+13);
-	res = TMrbtree_contains(tx, set, val+14);
-	res = TMrbtree_contains(tx, set, val+15);*/
+	for(i=0; i<16; i++){
+		res = TMrbtree_contains(tx, set, val);
+	}
 	COMMIT;
 
 	return res;
@@ -676,7 +663,7 @@ typedef struct task_data {
 #define CONTAINS 2
 //#include "threadpool.c"
 
-#define NUM_OPS (1 << 22)
+#define NUM_OPS (1 << 20)
 //#define TEST_MATRIX_SIZE 4
 /*
 void task_threadpool(void *data){
@@ -722,7 +709,7 @@ void* task_threads(void *data){
   //int val;
 
 #ifdef MUBENCH_WLPDSTM
-  while(serial < NUM_OPS /*&& AO_load_full(&stop) == 0*/){
+  while(serial < NUM_OPS * d->nb_tasks){
 #else
   while (stop == 0) {
 #endif /* MUBENCH_WLPDSTM */
@@ -1118,7 +1105,7 @@ int main(int argc, char **argv)
   int value = 0;
 
   for(i = 0; i < nb_threads; i++){
-	  if((ops[i] = (op*) malloc(NUM_OPS * sizeof(op))) == NULL){
+	  if((ops[i] = (op*) malloc(NUM_OPS * nb_tasks * sizeof(op))) == NULL){
 	    perror("malloc");
 	    exit(1);
 	  }
@@ -1126,8 +1113,8 @@ int main(int argc, char **argv)
 	  int start_serial = nb_tasks;
 	  int aux = 0;
 
-	  for(j = nb_tasks; j < NUM_OPS; j++){
-		  //at the start of each tx define if it is read or write
+	  for(j = nb_tasks; j < NUM_OPS * nb_tasks; j++){
+		  //at the start of each task define if it is read or write
 		  if(j % nb_tasks == 0){
 			  aux = rand() % 100;
 			  start_serial = j;
