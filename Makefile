@@ -2,13 +2,13 @@ include Makefile.in
 
 CPPFLAGS += -DUSE_STANDARD_IOSTREAM
 
-OBJFILES = $(OBJ_DIR)/tid.o $(OBJ_DIR)/wlpdstm.o $(OBJ_DIR)/transaction.o $(OBJ_DIR)/privatization_tree.o
+OBJFILES = $(OBJ_DIR)/tid.o $(OBJ_DIR)/tlstm.o $(OBJ_DIR)/transaction.o $(OBJ_DIR)/privatization_tree.o
 
 MUBENCH_OBJFILES = $(OBJ_DIR)/intset-rbtree.o
 
 .PHONY: clean $(OBJ_DIR) $(LIB_DIR) $(INCLUDE_DIR) $(INCLUDE_OUT_FILE)
 
-all: $(INCLUDE_OUT_FILE) $(LIB_DIR)/libwlpdstm.a $(OBJ_DIR)/intset-rbtree
+all: $(INCLUDE_OUT_FILE) $(LIB_DIR)/libtlstm.a $(OBJ_DIR)/intset-rbtree
 
 ###############
 # create dirs #
@@ -42,15 +42,15 @@ $(INCLUDE_OUT_FILE): $(INCLUDE_DIR)
 ##################
 
 # create lib
-$(LIB_DIR)/libwlpdstm.a: $(LIB_DIR) $(OBJFILES)
+$(LIB_DIR)/libtlstm.a: $(LIB_DIR) $(OBJFILES)
 	$(AR) cru $@ $(OBJFILES)
 
 # compile
 $(OBJ_DIR)/tid.o: $(OBJ_DIR) $(STM_SRC_DIR)/tid.cc $(STM_SRC_DIR)/tid.h
 	$(CPP) $(CPPFLAGS) $(STM_SRC_DIR)/tid.cc -c -o $@
 
-$(OBJ_DIR)/wlpdstm.o: $(OBJ_DIR) $(STM_SRC_DIR)/wlpdstm.cc $(STM_SRC_DIR)/wlpdstm.h
-	$(CPP) $(CPPFLAGS) $(STM_SRC_DIR)/wlpdstm.cc -c -o $@
+$(OBJ_DIR)/tlstm.o: $(OBJ_DIR) $(STM_SRC_DIR)/tlstm.cc $(STM_SRC_DIR)/tlstm.h
+	$(CPP) $(CPPFLAGS) $(STM_SRC_DIR)/tlstm.cc -c -o $@
 
 $(OBJ_DIR)/transaction.o: $(OBJ_DIR) $(STM_SRC_DIR)/transaction.cc $(STM_SRC_DIR)/transaction.h
 	$(CPP) $(CPPFLAGS) $(STM_SRC_DIR)/transaction.cc -c -o $@
@@ -63,7 +63,7 @@ $(OBJ_DIR)/privatization_tree.o: $(OBJ_DIR) $(STM_SRC_DIR)/privatization_tree.cc
 # create mubench #
 ##################
 
-$(OBJ_DIR)/intset-rbtree: $(LIB_DIR)/libwlpdstm.a $(MUBENCH_OBJFILES)
+$(OBJ_DIR)/intset-rbtree: $(LIB_DIR)/libtlstm.a $(MUBENCH_OBJFILES)
 	$(CC) $(MUBENCH_CPPFLAGS) -o $@ $^ $(MUBENCH_LDFLAGS)
 	cp $(OBJ_DIR)/intset-rbtree .
 

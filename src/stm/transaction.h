@@ -2,8 +2,8 @@
  * @author Aleksandar Dragojevic aleksandar.dragojevic@epfl.ch
  */
 
-#ifndef WLPDSTM_TRANSACTION_H_
-#define WLPDSTM_TRANSACTION_H_
+#ifndef TLSTM_TRANSACTION_H_
+#define TLSTM_TRANSACTION_H_
 
 #include "memory.h"
 #include "common/tls.h"
@@ -20,7 +20,7 @@
 // select transaction implementation //
 ///////////////////////////////////////
 
-namespace wlpdstm {
+namespace tlstm {
 
 	typedef TxMixinv Transaction;
 }
@@ -29,7 +29,7 @@ namespace wlpdstm {
 // thread local transaction object //
 /////////////////////////////////////
 
-namespace wlpdstm {
+namespace tlstm {
 
 	// A shortcut used for accessing transaction in progress.
 	class CurrentTransaction : public Tls<Transaction, true, true> {
@@ -78,4 +78,4 @@ namespace wlpdstm {
 	};
 }
 
-#endif // WLPDSTM_TRANSACTION_H_
+#endif // TLSTM_TRANSACTION_H_

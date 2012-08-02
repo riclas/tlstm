@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef WLPDSTM_STATS_H_
-#define WLPDSTM_STATS_H_
+#ifndef TLSTM_STATS_H_
+#define TLSTM_STATS_H_
 
 #include <stdint.h>
 #include <inttypes.h>
@@ -15,9 +15,9 @@
 
 #ifndef PRIu64
 
-#ifdef WLPDSTM_X86
+#ifdef TLSTM_X86
 #define PRIu64 "llu"
-#elif defined WLPDSTM_X86_64
+#elif defined TLSTM_X86_64
 #define PRIu64 "llu"
 #endif /* ARCH */
 
@@ -27,7 +27,7 @@
 #include "common/cache_aligned_alloc.h"
 #include "constants.h"
 
-namespace wlpdstm {
+namespace tlstm {
 
 	class Statistics : public CacheAlignedAlloc {
 	public:
@@ -82,7 +82,7 @@ namespace wlpdstm {
 			CYCLES,
 			RETIRED_INSTRUCTIONS,
 			CACHE_MISSES,
-#endif /* PERFORMANCE_COUNTING */							
+#endif /* PERFORMANCE_COUNTING */
 			COUNT
 		};
 
@@ -138,12 +138,12 @@ namespace wlpdstm {
 				"Cycles",
 				"RetiredInstructions",
 				"CacheMisses"
-#endif /* PERFORMANCE_COUNTING */				
+#endif /* PERFORMANCE_COUNTING */
 			};
 
 			return type_names[type];
 		}
-		
+
 	public:
 		Statistics() {
 			Reset();
@@ -160,7 +160,7 @@ namespace wlpdstm {
 		void Merge(Statistics *other) {
 			for(unsigned i = 0;i < COUNT;i++) {
 				Increment((Type)i, other->Get((Type)i));
-			}			
+			}
 		}
 
 		uint64_t Get(Type stat) {
@@ -201,7 +201,7 @@ namespace wlpdstm {
 			}
 #endif
 		}
-		
+
 		void Print(FILE *out_file, unsigned indent = 1);
 		void PrintIndent(FILE *out_file, unsigned indent);
 
@@ -249,13 +249,13 @@ namespace wlpdstm {
 	};
 }
 
-inline void wlpdstm::ThreadStatistics::PrintIndent(FILE *out_file, unsigned indent) {	
+inline void tlstm::ThreadStatistics::PrintIndent(FILE *out_file, unsigned indent) {
 	for(unsigned u = 0;u < indent;u++) {
 		fprintf(out_file, "\t");
 	}
 }
-		
-inline void wlpdstm::ThreadStatistics::Print(FILE *out_file, unsigned indent) {	
+
+inline void tlstm::ThreadStatistics::Print(FILE *out_file, unsigned indent) {
 	for(unsigned i = 0;i < Statistics::COUNT;i++) {
 		PrintIndent(out_file, indent);
 		fprintf(out_file, "%s: %" PRIu64 "\n", Statistics::GetTypeName((Statistics::Type)i),
@@ -276,4 +276,4 @@ inline void wlpdstm::ThreadStatistics::Print(FILE *out_file, unsigned indent) {
 	}
 }
 
-#endif /* WLPDSTM_STATS_H_ */
+#endif /* TLSTM_STATS_H_ */

@@ -3,8 +3,8 @@
  *
  */
 
-#ifndef WLPDSTM_ICC_MEMORY_H_
-#define WLPDSTM_ICC_MEMORY_H_
+#ifndef TLSTM_ICC_MEMORY_H_
+#define TLSTM_ICC_MEMORY_H_
 
 #include <stdlib.h>
 
@@ -13,12 +13,12 @@ extern "C"
 {
 #endif
 
-__attribute__((tm_wrapping(malloc))) void *wlpdstm_icc_malloc(size_t size);
-__attribute__((tm_wrapping(free))) void wlpdstm_icc_free(void *ptr);
+__attribute__((tm_wrapping(malloc))) void *tlstm_icc_malloc(size_t size);
+__attribute__((tm_wrapping(free))) void tlstm_icc_free(void *ptr);
 
 			  
 #ifdef __cplusplus
 }
 #endif
 			  
-#endif /* WLPDSTM_ICC_MEMORY_H_ */
+#endif /* TLSTM_ICC_MEMORY_H_ */

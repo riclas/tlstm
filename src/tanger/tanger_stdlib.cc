@@ -15,6 +15,6 @@ extern "C" {
 									int (*compar)(const void *, const void *)) __attribute__((weak));
 	extern void tanger_stm_std_qsort(void *base, size_t nel, size_t width,
 									int (*compar)(const void *, const void *)) {
-		wlpdstm::qsort_tx(wlpdstm::CurrentTransaction::Get(), base, nel, width, compar);
+		tlstm::qsort_tx(tlstm::CurrentTransaction::Get(), base, nel, width, compar);
 	}
 }

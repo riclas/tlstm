@@ -1,11 +1,11 @@
-#ifndef WLPDSTM_VERSION_LOCK_H_
-#define WLPDSTM_VERSION_LOCK_H_
+#ifndef TLSTM_VERSION_LOCK_H_
+#define TLSTM_VERSION_LOCK_H_
 
 #include "word.h"
 
 #include "../constants.h"
 
-namespace wlpdstm {
+namespace tlstm {
 
 	typedef Word VersionLock;
 
@@ -38,4 +38,4 @@ namespace wlpdstm {
 	}
 }
 
-#endif // WLPDSTM_VERSION_LOCK_H_
+#endif // TLSTM_VERSION_LOCK_H_

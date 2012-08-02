@@ -7,8 +7,8 @@
  * @author Aleksandar Dragojevic aleksandar.dragojevic@epfl.ch
  */
 
-#ifndef WLPDSTM_ARRAY_H_
-#define WLPDSTM_ARRAY_H_
+#ifndef TLSTM_ARRAY_H_
+#define TLSTM_ARRAY_H_
 
 #include "../allocators.h"
 
@@ -16,7 +16,7 @@
 
 #ifdef CHUNKED_LOG
 
-namespace wlpdstm {
+namespace tlstm {
 
 	template<typename T, int CHUNK_LENGTH = 2048, bool INIT = false>
 	class Log : public WlpdstmAlloced {
@@ -79,7 +79,7 @@ namespace wlpdstm {
 	};
 }
 
-namespace wlpdstm {
+namespace tlstm {
 	
 	template<typename T, int CHUNK_LENGTH, bool INIT>
 	inline typename Log<T, CHUNK_LENGTH, INIT>::iterator Log<T, CHUNK_LENGTH, INIT>::begin() const {
@@ -250,7 +250,7 @@ namespace wlpdstm {
 
 #elif defined VECTOR_LOG
 
-namespace wlpdstm {
+namespace tlstm {
 
 	template<typename T, int INITIAL_SIZE = 256>
 	class Log : public WlpdstmAlloced {
@@ -277,7 +277,7 @@ namespace wlpdstm {
 			};
 
 		public:
-			Log() : array((T *)wlpdstm::malloc(INITIAL_SIZE * sizeof(T))),
+			Log() : array((T *)tlstm::malloc(INITIAL_SIZE * sizeof(T))),
 				size(INITIAL_SIZE), next(0) { }
 
 			iterator begin() const;
@@ -295,7 +295,7 @@ namespace wlpdstm {
 	};
 }
 
-namespace wlpdstm {
+namespace tlstm {
 
 	template<typename T, int INITIAL_SIZE>
 	inline typename Log<T, INITIAL_SIZE>::iterator Log<T, INITIAL_SIZE>::begin() const {
@@ -317,9 +317,9 @@ namespace wlpdstm {
 		if(next == size) {
 			size *= 2;
 			T *oldArray = array;
-			array = (T *)wlpdstm::malloc(size * sizeof(T));
+			array = (T *)tlstm::malloc(size * sizeof(T));
 			memcpy(array, oldArray, next);
-			wlpdstm::free(oldArray);
+			tlstm::free(oldArray);
 		}
 
 		array[next++] = el;
@@ -394,7 +394,7 @@ namespace wlpdstm {
 // Nodes in the free list don't need to have prev field initialized.
 //
 
-namespace wlpdstm {
+namespace tlstm {
 	
 	template<typename T, int INITIAL_SIZE = 2048, int GROWTH_FACTOR = 2048>
 	class Log : public WlpdstmAlloced {
@@ -451,7 +451,7 @@ namespace wlpdstm {
 }
 
 
-namespace wlpdstm {
+namespace tlstm {
 
 	template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
 	inline Log<T, INITIAL_SIZE, GROWTH_FACTOR>::Log() : head(NULL), tail(NULL) {
@@ -599,4 +599,4 @@ namespace wlpdstm {
 
 #endif // linked log
 
-#endif // WLPDSTM_ARRAY_H_
+#endif // TLSTM_ARRAY_H_

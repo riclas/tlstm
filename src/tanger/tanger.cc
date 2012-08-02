@@ -22,15 +22,15 @@ extern "C" {
 // util start //
 ////////////////	
 
-//#define TLS_STACK_AREA wlpdstm::Tls<StackArea, false, true>::Get()
+//#define TLS_STACK_AREA tlstm::Tls<StackArea, false, true>::Get()
 
-#ifdef WLPDSTM_MACOS
+#ifdef TLSTM_MACOS
 #include <malloc/malloc.h>
 
 inline size_t malloc_mem_size(void *ptr) {
 	return malloc_size(ptr);
 }
-#elif defined WLPDSTM_LINUXOS
+#elif defined TLSTM_LINUXOS
 #include <malloc.h>
 
 inline size_t malloc_mem_size(void *ptr) {
@@ -48,39 +48,39 @@ inline size_t malloc_mem_size(void *ptr) {
 
 extern "C" {
 uint8_t tanger_stm_load1(tanger_stm_tx_t* tx, uint8_t *addr) {
-	return wlpdstm::read8((wlpdstm::Transaction *)tx, addr);
+	return tlstm::read8((tlstm::Transaction *)tx, addr);
 }
 
 uint8_t tanger_stm_load8(tanger_stm_tx_t* tx, uint8_t *addr) {
-	return wlpdstm::read8((wlpdstm::Transaction *)tx, addr);
+	return tlstm::read8((tlstm::Transaction *)tx, addr);
 }
 
 uint16_t tanger_stm_load16(tanger_stm_tx_t* tx, uint16_t *addr) {
-	return wlpdstm::read16((wlpdstm::Transaction *)tx, addr);
+	return tlstm::read16((tlstm::Transaction *)tx, addr);
 }
 
 uint32_t tanger_stm_load32(tanger_stm_tx_t* tx, uint32_t *addr) {
-	return wlpdstm::read32((wlpdstm::Transaction *)tx, addr);
+	return tlstm::read32((tlstm::Transaction *)tx, addr);
 }
 
 uint64_t tanger_stm_load64(tanger_stm_tx_t* tx, uint64_t *addr) {
-	return wlpdstm::read64((wlpdstm::Transaction *)tx, addr);
+	return tlstm::read64((tlstm::Transaction *)tx, addr);
 }
 
 uint16_t tanger_stm_load16aligned(tanger_stm_tx_t* tx, uint16_t *addr) {
-	return wlpdstm::read16aligned((wlpdstm::Transaction *)tx, addr);
+	return tlstm::read16aligned((tlstm::Transaction *)tx, addr);
 }
 
 uint32_t tanger_stm_load32aligned(tanger_stm_tx_t* tx, uint32_t *addr) {
-	return wlpdstm::read32aligned((wlpdstm::Transaction *)tx, addr);
+	return tlstm::read32aligned((tlstm::Transaction *)tx, addr);
 }
 
 uint64_t tanger_stm_load64aligned(tanger_stm_tx_t* tx, uint64_t *addr) {
-	return wlpdstm::read64aligned((wlpdstm::Transaction *)tx, addr);
+	return tlstm::read64aligned((tlstm::Transaction *)tx, addr);
 }
 
 void tanger_stm_loadregion(tanger_stm_tx_t* tx, uint8_t *src, uintptr_t bytes, uint8_t *dest) {
-	wlpdstm::read_region((wlpdstm::Transaction *)tx, src, bytes, dest);
+	tlstm::read_region((tlstm::Transaction *)tx, src, bytes, dest);
 }
 
 void* tanger_stm_loadregionpre(tanger_stm_tx_t* tx, uint8_t *addr, uintptr_t bytes) {
@@ -95,39 +95,39 @@ void tanger_stm_loadregionpost(tanger_stm_tx_t* tx, uint8_t *addr, uintptr_t byt
 
 
 void tanger_stm_store1(tanger_stm_tx_t* tx, uint8_t *addr, uint8_t value) {
-	wlpdstm::write8((wlpdstm::Transaction *)tx, addr, value);
+	tlstm::write8((tlstm::Transaction *)tx, addr, value);
 }
 
 void tanger_stm_store8(tanger_stm_tx_t* tx, uint8_t *addr, uint8_t value) {
-	wlpdstm::write8((wlpdstm::Transaction *)tx, addr, value);
+	tlstm::write8((tlstm::Transaction *)tx, addr, value);
 }
 
 void tanger_stm_store16(tanger_stm_tx_t* tx, uint16_t *addr, uint16_t value) {
-	wlpdstm::write16((wlpdstm::Transaction *)tx, addr, value);
+	tlstm::write16((tlstm::Transaction *)tx, addr, value);
 }
 
 void tanger_stm_store32(tanger_stm_tx_t* tx, uint32_t *addr, uint32_t value) {
-	wlpdstm::write32((wlpdstm::Transaction *)tx, addr, value);
+	tlstm::write32((tlstm::Transaction *)tx, addr, value);
 }
 
 void tanger_stm_store64(tanger_stm_tx_t* tx, uint64_t *addr, uint64_t value) {
-	wlpdstm::write64((wlpdstm::Transaction *)tx, addr, value);
+	tlstm::write64((tlstm::Transaction *)tx, addr, value);
 }
 
 void tanger_stm_store16aligned(tanger_stm_tx_t* tx, uint16_t *addr, uint16_t value) {
-	wlpdstm::write16aligned((wlpdstm::Transaction *)tx, addr, value);
+	tlstm::write16aligned((tlstm::Transaction *)tx, addr, value);
 }
 
 void tanger_stm_store32aligned(tanger_stm_tx_t* tx, uint32_t *addr, uint32_t value) {
-	wlpdstm::write32aligned((wlpdstm::Transaction *)tx, addr, value);
+	tlstm::write32aligned((tlstm::Transaction *)tx, addr, value);
 }
 
 void tanger_stm_store64aligned(tanger_stm_tx_t* tx, uint64_t *addr, uint64_t value) {
-	wlpdstm::write64aligned((wlpdstm::Transaction *)tx, addr, value);
+	tlstm::write64aligned((tlstm::Transaction *)tx, addr, value);
 }
 
 void tanger_stm_storeregion(tanger_stm_tx_t* tx, uint8_t *src, uintptr_t bytes, uint8_t *dest) {
-	wlpdstm::write_region((wlpdstm::Transaction *)tx, src, bytes, dest);
+	tlstm::write_region((tlstm::Transaction *)tx, src, bytes, dest);
 }
 
 void* tanger_stm_storeregionpre(tanger_stm_tx_t* tx, uint8_t *addr, uintptr_t bytes) {
@@ -141,20 +141,20 @@ void* tanger_stm_updateregionpre(tanger_stm_tx_t* tx, uint8_t *addr, uintptr_t b
 }
 
 void tanger_stm_begin(tanger_stm_tx_t* tx) {
-	((wlpdstm::Transaction *)tx)->TxStart();
+	((tlstm::Transaction *)tx)->TxStart();
 }
 
 void tanger_stm_commit(tanger_stm_tx_t* tx) {
-	((wlpdstm::Transaction *)tx)->TxCommit();
+	((tlstm::Transaction *)tx)->TxCommit();
 	TLS_STACK_AREA->low = 0;
 }
 
 tanger_stm_tx_t* tanger_stm_get_tx() {
-	return (tanger_stm_tx_t *)wlpdstm::CurrentTransaction::Get();
+	return (tanger_stm_tx_t *)tlstm::CurrentTransaction::Get();
 }
 
 void* tanger_stm_get_jmpbuf(tanger_stm_tx_t* tx) {
-	return &((wlpdstm::Transaction *)tx)->start_buf;
+	return &((tlstm::Transaction *)tx)->start_buf;
 }
 
 /**
@@ -163,7 +163,7 @@ void* tanger_stm_get_jmpbuf(tanger_stm_tx_t* tx) {
 void tanger_stm_save_restore_stack(void* low_addr, void* high_addr) __attribute__ ((noinline));
 void tanger_stm_save_restore_stack(void* low_addr, void* high_addr) {
 	uintptr_t size;
-	wlpdstm::StackArea *area = TLS_STACK_AREA;
+	tlstm::StackArea *area = TLS_STACK_AREA;
 	
 	if(area->low != 0) {
 		// restore stack area
@@ -178,8 +178,8 @@ void tanger_stm_save_restore_stack(void* low_addr, void* high_addr) {
 		if (area->size < size) {
 			// allocate twice the necessary size, and at least 1KB
 			area->size = (size < 1024 / 2 ? 1024 : size * 2);
-			wlpdstm::MemoryManager::Free(area->data);
-			area->data = wlpdstm::MemoryManager::Malloc(size);
+			tlstm::MemoryManager::Free(area->data);
+			area->data = tlstm::MemoryManager::Malloc(size);
 		}
 
 		memcpy(area->data, (void *)area->low, size);
@@ -197,14 +197,14 @@ void tanger_stm_save_restore_stack(void* low_addr, void* high_addr) {
 		//
 		// This code would work correctly if area->high is top of
 		// tx_local stack (which tanger does not do).
-		wlpdstm::CurrentTransaction::Get()->SetStackHigh(area->high);
+		tlstm::CurrentTransaction::Get()->SetStackHigh(area->high);
 #endif /* STACK_PROTECT_TANGER_BOUND */
 	}	
 }
 
 void tanger_stm_init() {
-	wlpdstm::CurrentTransaction::GlobalInit();
-	wlpdstm::Tls<wlpdstm::StackArea, false, true>::GlobalInit();
+	tlstm::CurrentTransaction::GlobalInit();
+	tlstm::Tls<tlstm::StackArea, false, true>::GlobalInit();
 }
 
 void tanger_stm_shutdown() {
@@ -212,10 +212,10 @@ void tanger_stm_shutdown() {
 }
 
 void tanger_stm_thread_init() {
-	wlpdstm::CurrentTransaction::ThreadInit();
-	wlpdstm::ThreadStackArea::ThreadInit();
-//	wlpdstm::thread_init_stack_area();
-//	wlpdstm::Tls<wlpdstm::StackArea, false, true>::ThreadInit();
+	tlstm::CurrentTransaction::ThreadInit();
+	tlstm::ThreadStackArea::ThreadInit();
+//	tlstm::thread_init_stack_area();
+//	tlstm::Tls<tlstm::StackArea, false, true>::ThreadInit();
 }
 
 void tanger_stm_thread_shutdown() {
@@ -223,15 +223,15 @@ void tanger_stm_thread_shutdown() {
 }
 
 void *tanger_stm_malloc(size_t size, tanger_stm_tx_t* tx) {
-	return ((wlpdstm::Transaction *)tx)->TxMalloc(size);
+	return ((tlstm::Transaction *)tx)->TxMalloc(size);
 }
 
 void tanger_stm_free(void *ptr, tanger_stm_tx_t* tx) {
-	return ((wlpdstm::Transaction *)tx)->TxFree(ptr, malloc_mem_size(ptr));
+	return ((tlstm::Transaction *)tx)->TxFree(ptr, malloc_mem_size(ptr));
 }
 
 void *tanger_stm_calloc(size_t nmemb, size_t size, tanger_stm_tx_t* tx) {
-	void *ret = ((wlpdstm::Transaction *)tx)->TxMalloc(nmemb * size);
+	void *ret = ((tlstm::Transaction *)tx)->TxMalloc(nmemb * size);
 	memset(ret, 0, nmemb * size);
 	return ret;
 }
@@ -239,11 +239,11 @@ void *tanger_stm_calloc(size_t nmemb, size_t size, tanger_stm_tx_t* tx) {
 void *tanger_stm_realloc(void *ptr, size_t size, tanger_stm_tx_t* tx) {
 	// if it is free
 	if (size == 0) {
-		((wlpdstm::Transaction *)tx)->TxFree(ptr, malloc_mem_size(ptr));
+		((tlstm::Transaction *)tx)->TxFree(ptr, malloc_mem_size(ptr));
 		return NULL;
 	}
 	
-	void *ret = ((wlpdstm::Transaction *)tx)->TxMalloc(size);
+	void *ret = ((tlstm::Transaction *)tx)->TxMalloc(size);
 
 	// if it is malloc
 	if (ptr == NULL) {
@@ -251,17 +251,17 @@ void *tanger_stm_realloc(void *ptr, size_t size, tanger_stm_tx_t* tx) {
 	}
 
 	// copy old
-	wlpdstm::read_region((wlpdstm::Transaction *)tx, (uint8_t *)ptr, (uintptr_t)size, (uint8_t *)ret);
+	tlstm::read_region((tlstm::Transaction *)tx, (uint8_t *)ptr, (uintptr_t)size, (uint8_t *)ret);
 
 	// free old
-	((wlpdstm::Transaction *)tx)->TxFree(ptr, malloc_mem_size(ptr));
+	((tlstm::Transaction *)tx)->TxFree(ptr, malloc_mem_size(ptr));
 	
 	return ret;
 }
 
 void fix_tanger_restart() {
 	printf("Restarting...\n");
-	wlpdstm::CurrentTransaction::TxRestart();
+	tlstm::CurrentTransaction::TxRestart();
 }
 }
 

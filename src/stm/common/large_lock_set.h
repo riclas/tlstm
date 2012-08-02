@@ -4,13 +4,13 @@
  * @author Aleksandar Dragojevic aleksandar.dragojevic@epfl.ch
  */
 
-#ifndef WLPDSTM_LARGE_LOCK_SET_H_
-#define WLPDSTM_LARGE_LOCK_SET_H_
+#ifndef TLSTM_LARGE_LOCK_SET_H_
+#define TLSTM_LARGE_LOCK_SET_H_
 
 #include <stdint.h>
 #include <string.h>
 
-namespace wlpdstm {
+namespace tlstm {
 
 	template <unsigned SIZE>
 	class LargeLockSet {
@@ -55,4 +55,4 @@ namespace wlpdstm {
 	};
 }
 
-#endif /* WLPDSTM_LARGE_LOCK_SET_H_ */
+#endif /* TLSTM_LARGE_LOCK_SET_H_ */

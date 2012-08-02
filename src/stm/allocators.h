@@ -2,15 +2,15 @@
  * @author Aleksandar Dragojevic aleksandar.dragojevic@epfl.ch
  */
 
-#ifndef WLPDSTM_ALLOCATORS_H_
-#define WLPDSTM_ALLOCATORS_H_
+#ifndef TLSTM_ALLOCATORS_H_
+#define TLSTM_ALLOCATORS_H_
 
 #include "memory.h"
 
-namespace wlpdstm {
+namespace tlstm {
 
 	/**
-	 * Use non-tx free/malloc provided by wlpdstm.
+	 * Use non-tx free/malloc provided by tlstm.
 	 */
 	class WlpdstmAlloced {
 		public:
@@ -28,4 +28,4 @@ namespace wlpdstm {
 	};
 }
 
-#endif // WLPDSTM_ALLOCATORS_H_
+#endif // TLSTM_ALLOCATORS_H_

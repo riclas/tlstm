@@ -1,10 +1,10 @@
 #ifndef PREEMPTIVE_UTILS_H_
 #define PREEMPTIVE_UTILS_H_
 
-#ifdef WLPDSTM_LINUXOS || defined WLPDSTM_SOLARIS
+#ifdef TLSTM_LINUXOS || defined TLSTM_SOLARIS
 #include <pthread.h>
 
-namespace wlpdstm {
+namespace tlstm {
 
 	// give up on this processor slice
 	inline void pre_yield() {
@@ -12,11 +12,11 @@ namespace wlpdstm {
 	}
 }
 
-#elif defined WLPDSTM_MACOS
+#elif defined TLSTM_MACOS
 
 #include <sched.h>
 
-namespace wlpdstm {
+namespace tlstm {
 	
 	// give up on this processor slice
 	inline void pre_yield() {
@@ -24,7 +24,7 @@ namespace wlpdstm {
 	}
 }
 
-#endif /* WLPDSTM_LINUXOS */
+#endif /* TLSTM_LINUXOS */
 
 #endif // PREEMPTIVE_UTILS_H_
 

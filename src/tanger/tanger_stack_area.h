@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef WLPDSTM_TANGER_STACK_AREA_H_
-#define WLPDSTM_TANGER_STACK_AREA_H_
+#ifndef TLSTM_TANGER_STACK_AREA_H_
+#define TLSTM_TANGER_STACK_AREA_H_
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -14,7 +14,7 @@
 #include "../stm/common/tls.h"
 #include "../stm/common/cache_aligned_alloc.h"
 
-namespace wlpdstm {
+namespace tlstm {
 
 	class StackArea : public CacheAlignedAlloc {
 	public:
@@ -34,6 +34,6 @@ namespace wlpdstm {
 	};
 }
 
-#define TLS_STACK_AREA wlpdstm::ThreadStackArea::Get()
+#define TLS_STACK_AREA tlstm::ThreadStackArea::Get()
 
-#endif /* WLPDSTM_TANGER_STACK_AREA_H_ */
+#endif /* TLSTM_TANGER_STACK_AREA_H_ */

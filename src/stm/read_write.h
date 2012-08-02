@@ -14,9 +14,9 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-#ifdef WLPDSTM_ICC
+#ifdef TLSTM_ICC
 #include <xmmintrin.h>
-#endif /* WLPDSTM_ICC */
+#endif /* TLSTM_ICC */
 
 #include "transaction.h"
 #include "memory.h"
@@ -29,11 +29,11 @@
 #define MASK_64 0x7l
 #define MASK_32 0x3l
 
-#ifdef WLPDSTM_32
+#ifdef TLSTM_32
 #	define MASK MASK_32
 #	define READ_WORD(addr, var, tx)	(var).b32[0] = (tx)->ReadWord(addr)
 #	define WORD_FIELD_NAME			b32
-#elif defined WLPDSTM_64
+#elif defined TLSTM_64
 #	define MASK MASK_64
 #	define READ_WORD(addr, var, tx)	(var).b64[0] = (tx)->ReadWord(addr)
 #	define WORD_FIELD_NAME			b64
@@ -49,7 +49,7 @@
 #define WORD32_16_POS(addr)			(((uintptr_t)addr & MASK_32) >> SHIFT_16)
 #define WORD32_8_POS(addr)			(((uintptr_t)addr & MASK_32) >> SHIFT_8)
 
-namespace wlpdstm {
+namespace tlstm {
 
 	typedef union read_write_conv_u {
 		// basic sizes
@@ -62,9 +62,9 @@ namespace wlpdstm {
 		float f[4];
 		double d[2];
 
-#ifdef WLPDSTM_ICC
+#ifdef TLSTM_ICC
 		__m128 m128[1];
-#endif /* WLPDSTM_ICC */
+#endif /* TLSTM_ICC */
 
 		////////////////////
 		// helper structs //
@@ -150,9 +150,9 @@ namespace wlpdstm {
 	float read_float(Transaction *tx, float *addr);
 	double read_double(Transaction *tx, double *addr);
 
-#ifdef WLPDSTM_ICC
+#ifdef TLSTM_ICC
 	__m128 read_m128(Transaction *tx, __m128 *addr);
-#endif /* WLPDSTM_ICC */
+#endif /* TLSTM_ICC */
 
 	// aligned
 	uint8_t read8aligned(Transaction *tx, uint8_t *addr);
@@ -175,9 +175,9 @@ namespace wlpdstm {
 	void write_float(Transaction *tx, float *addr, float val);
 	void write_double(Transaction *tx, double *addr, double val);
 
-#ifdef WLPDSTM_ICC
+#ifdef TLSTM_ICC
 	void write_m128(Transaction *tx, __m128 *addr, __m128 val);
-#endif /* WLPDSTM_ICC */
+#endif /* TLSTM_ICC */
 
 	// aligned
 	void write8aligned(Transaction *tx, uint8_t *addr, uint8_t val);
@@ -205,13 +205,13 @@ namespace wlpdstm {
 // read implementations start //
 ////////////////////////////////
 
-inline uint8_t wlpdstm::read8(Transaction *tx, uint8_t *addr) {
+inline uint8_t tlstm::read8(Transaction *tx, uint8_t *addr) {
 	// this is fine as there are no unaligned read8s
 	return read8aligned(tx, addr);
 }
 
-inline uint16_t wlpdstm::read16(Transaction *tx, uint16_t *addr) {
-#ifdef WLPDSTM_32
+inline uint16_t tlstm::read16(Transaction *tx, uint16_t *addr) {
+#ifdef TLSTM_32
 	uintptr_t pos = (uintptr_t)addr & MASK_32;
 	Word *first_word_addr = WORD32_ADDRESS(addr);
 	read_write_conv_t value;
@@ -225,7 +225,7 @@ inline uint16_t wlpdstm::read16(Transaction *tx, uint16_t *addr) {
 		value.b32[1] = (uint32_t)(tx->ReadWord(first_word_addr + 1));
 		return value.mask_16.b16[1];
 	}
-#elif defined WLPDSTM_64
+#elif defined TLSTM_64
 	uintptr_t pos = (uintptr_t)addr & MASK_64;
 	Word *first_word_addr = WORD64_ADDRESS(addr);
 	read_write_conv_t value;
@@ -246,8 +246,8 @@ inline uint16_t wlpdstm::read16(Transaction *tx, uint16_t *addr) {
 #endif /* word_size */
 }
 
-inline uint32_t wlpdstm::read32(Transaction *tx, uint32_t *addr) {
-#ifdef WLPDSTM_32
+inline uint32_t tlstm::read32(Transaction *tx, uint32_t *addr) {
+#ifdef TLSTM_32
 	uintptr_t pos = (uintptr_t)addr & MASK_32;
 	Word *first_word_addr = WORD32_ADDRESS(addr);
 	read_write_conv_t value;
@@ -267,7 +267,7 @@ inline uint32_t wlpdstm::read32(Transaction *tx, uint32_t *addr) {
 		return value.mask_32_3.b32[0];
 	}
 
-#elif defined WLPDSTM_64
+#elif defined TLSTM_64
 
 	uintptr_t pos = (uintptr_t)addr & MASK_64;
 	Word *first_word_addr = WORD64_ADDRESS(addr);
@@ -298,8 +298,8 @@ inline uint32_t wlpdstm::read32(Transaction *tx, uint32_t *addr) {
 #endif /* word_size */
 }
 
-inline uint64_t wlpdstm::read64(Transaction *tx, uint64_t *addr) {
-#ifdef WLPDSTM_32
+inline uint64_t tlstm::read64(Transaction *tx, uint64_t *addr) {
+#ifdef TLSTM_32
 	uintptr_t pos = (uintptr_t)addr & MASK_32;
 	Word *first_word_addr = WORD32_ADDRESS(addr);
 	read_write_conv_t value;
@@ -319,7 +319,7 @@ inline uint64_t wlpdstm::read64(Transaction *tx, uint64_t *addr) {
 			return value.mask_64_3.b64;
 		}
 	}
-#elif defined WLPDSTM_64
+#elif defined TLSTM_64
 	uintptr_t pos = (uintptr_t)addr & MASK_64;
 	Word *first_word_addr = WORD64_ADDRESS(addr);
 	read_write_conv_t value;
@@ -350,99 +350,99 @@ inline uint64_t wlpdstm::read64(Transaction *tx, uint64_t *addr) {
 }
 
 // TODO: check whether it would be better to repeat the code from read_32
-inline float wlpdstm::read_float(Transaction *tx, float *addr) {
+inline float tlstm::read_float(Transaction *tx, float *addr) {
 	read_write_conv_t value;
 	value.b32[0] = read32(tx, (uint32_t *)addr);
 	return value.f[0];
 }
 
-inline double wlpdstm::read_double(Transaction *tx, double *addr) {
+inline double tlstm::read_double(Transaction *tx, double *addr) {
 	read_write_conv_t value;
 	value.b64[0] = read64(tx, (uint64_t *)addr);
 	return value.d[0];	
 }
 
-#ifdef WLPDSTM_ICC
-inline __m128 wlpdstm::read_m128(Transaction *tx, __m128 *addr) {
+#ifdef TLSTM_ICC
+inline __m128 tlstm::read_m128(Transaction *tx, __m128 *addr) {
 	read_write_conv_t value;
 	uint64_t *addr64 = (uint64_t *)addr;
 	value.b64[0] = read64(tx, addr64);
 	value.b64[1] = read64(tx, addr64 + 1);
 	return value.m128[0];
 }
-#endif /* WLPDSTM_ICC */
+#endif /* TLSTM_ICC */
 
-inline uint8_t wlpdstm::read8aligned(Transaction *tx, uint8_t *addr) {
-#ifdef WLPDSTM_32
+inline uint8_t tlstm::read8aligned(Transaction *tx, uint8_t *addr) {
+#ifdef TLSTM_32
 	read_write_conv_t value;
 	value.b32[0] = (uint32_t)(tx->ReadWord(WORD32_ADDRESS(addr)));
 	return value.b8[WORD32_8_POS(addr)];
-#elif defined WLPDSTM_64
+#elif defined TLSTM_64
 	read_write_conv_t value;
 	value.b64[0] = (uint64_t)(tx->ReadWord(WORD64_ADDRESS(addr)));
 	return value.b8[WORD64_8_POS(addr)];
 #endif /* word_size */
 }
 
-inline uint16_t wlpdstm::read16aligned(Transaction *tx, uint16_t *addr) {
-#ifdef WLPDSTM_32
+inline uint16_t tlstm::read16aligned(Transaction *tx, uint16_t *addr) {
+#ifdef TLSTM_32
 	read_write_conv_t value;
 	value.b32[0] = (uint32_t)(tx->ReadWord(WORD32_ADDRESS(addr)));
 	return value.b16[WORD32_16_POS(addr)];
-#elif defined WLPDSTM_64
+#elif defined TLSTM_64
 	read_write_conv_t value;
 	value.b64[0] = (uint64_t)(tx->ReadWord(WORD64_ADDRESS(addr)));
 	return value.b16[WORD64_16_POS(addr)];
 #endif /* word_size */	
 }
 
-inline uint32_t wlpdstm::read32aligned(Transaction *tx, uint32_t *addr) {
-#ifdef WLPDSTM_32
+inline uint32_t tlstm::read32aligned(Transaction *tx, uint32_t *addr) {
+#ifdef TLSTM_32
 	return tx->ReadWord((Word *)addr);
-#elif defined WLPDSTM_64
+#elif defined TLSTM_64
 	read_write_conv_t value;
 	value.b64[0] = (uint64_t)(tx->ReadWord(WORD64_ADDRESS(addr)));
 	return value.b32[WORD64_32_POS(addr)];
 #endif /* word_size */	
 }
 
-inline uint64_t wlpdstm::read64aligned(Transaction *tx, uint64_t *addr) {
-#ifdef WLPDSTM_32
+inline uint64_t tlstm::read64aligned(Transaction *tx, uint64_t *addr) {
+#ifdef TLSTM_32
 	read_write_conv_t val;
 	val.b32[0] = tx->ReadWord((Word *)addr);
 	val.b32[1] = tx->ReadWord(((Word *)addr) + 1);
 	return val.b64[0];		
-#elif defined WLPDSTM_64
+#elif defined TLSTM_64
 	return tx->ReadWord((Word *)addr);
 #endif /* word_size */	
 }
 
-inline float wlpdstm::read_float_aligned(Transaction *tx, float *addr) {
-#ifdef WLPDSTM_32
+inline float tlstm::read_float_aligned(Transaction *tx, float *addr) {
+#ifdef TLSTM_32
 	read_write_conv_t value;
 	value.b32[0] = tx->ReadWord((Word *)addr);
 	return value.f[0];
-#elif defined WLPDSTM_64
+#elif defined TLSTM_64
 	read_write_conv_t value;
 	value.b64[0] = (uint64_t)(tx->ReadWord(WORD64_ADDRESS(addr)));
 	return value.f[WORD64_32_POS(addr)];
 #endif /* word_size */	
 }
 		
-inline double wlpdstm::read_double_aligned(Transaction *tx, double *addr) {
-#ifdef WLPDSTM_32
+inline double tlstm::read_double_aligned(Transaction *tx, double *addr) {
+#ifdef TLSTM_32
 	read_write_conv_t val;
 	val.b32[0] = tx->ReadWord((Word *)addr);
 	val.b32[1] = tx->ReadWord(((Word *)addr) + 1);
 	return val.d[0];		
-#elif defined WLPDSTM_64
+#elif defined TLSTM_64
 	read_write_conv_t val;
 	val.b64[0] = tx->ReadWord((Word *)addr);
 	return val.d[0]; 
 #endif /* word_size */
 }
 
-inline void wlpdstm::read_region(Transaction *tx, uint8_t *src, uintptr_t bytes, uint8_t *dest) {
+inline void tlstm::read_region(Transaction *tx, uint8_t *src, uintptr_t bytes, uint8_t *dest) {
 	size_t bytes_read = 0;
 
 	read_write_conv_t val;
@@ -521,13 +521,13 @@ inline void wlpdstm::read_region(Transaction *tx, uint8_t *src, uintptr_t bytes,
 // write implementations start //
 /////////////////////////////////
 
-inline void wlpdstm::write8(Transaction *tx, uint8_t *addr, uint8_t val8) {
+inline void tlstm::write8(Transaction *tx, uint8_t *addr, uint8_t val8) {
 	// byte writes are always aligned
 	write8aligned(tx, addr, val8);
 }
 
-inline void wlpdstm::write16(Transaction *tx, uint16_t *addr, uint16_t val16) {
-#ifdef WLPDSTM_32
+inline void tlstm::write16(Transaction *tx, uint16_t *addr, uint16_t val16) {
+#ifdef TLSTM_32
 	unsigned pos = (uintptr_t)addr & MASK_32;
 	Word *first_word_addr = (Word *)((uintptr_t)addr & ~MASK_32);
 	read_write_conv_t mask;
@@ -553,7 +553,7 @@ inline void wlpdstm::write16(Transaction *tx, uint16_t *addr, uint16_t val16) {
 		tx->WriteWord(first_word_addr, (Word)val.b32[0], (Word)mask.b32[0]);
 		tx->WriteWord(first_word_addr + 1, (Word)val.b32[1], (Word)mask.b32[1]);
 	}
-#elif defined WLPDSTM_64
+#elif defined TLSTM_64
 	unsigned pos = (uintptr_t)addr & MASK_64;
 	Word *first_word_addr = (Word *)((uintptr_t)addr & ~MASK_64);
 	read_write_conv_t mask;
@@ -586,8 +586,8 @@ inline void wlpdstm::write16(Transaction *tx, uint16_t *addr, uint16_t val16) {
 #endif /* word_size */		
 }
 	
-inline void wlpdstm::write32(Transaction *tx, uint32_t *addr, uint32_t val32) {
-#ifdef WLPDSTM_32
+inline void tlstm::write32(Transaction *tx, uint32_t *addr, uint32_t val32) {
+#ifdef TLSTM_32
 	unsigned pos = (uintptr_t)addr & MASK_32;
 	Word *first_word_addr = (Word *)((uintptr_t)addr & ~MASK_32);
 
@@ -613,7 +613,7 @@ inline void wlpdstm::write32(Transaction *tx, uint32_t *addr, uint32_t val32) {
 		tx->WriteWord(first_word_addr, (Word)val.b32[0], (Word)mask.b32[0]);
 		tx->WriteWord(first_word_addr + 1, (Word)val.b32[1], (Word)mask.b32[1]);
 	}
-#elif defined WLPDSTM_64
+#elif defined TLSTM_64
 	unsigned pos = (uintptr_t)addr & MASK_64;
 	Word *first_word_addr = (Word *)((uintptr_t)addr & ~MASK_64);
 	read_write_conv_t mask;
@@ -659,8 +659,8 @@ inline void wlpdstm::write32(Transaction *tx, uint32_t *addr, uint32_t val32) {
 #endif /* word_size */
 }
 
-inline void wlpdstm::write64(Transaction *tx, uint64_t *addr, uint64_t val64) {
-#ifdef WLPDSTM_32
+inline void tlstm::write64(Transaction *tx, uint64_t *addr, uint64_t val64) {
+#ifdef TLSTM_32
 	unsigned pos = (uintptr_t)addr & MASK_32;
 	Word *first_word_addr = (Word *)((uintptr_t)addr & ~MASK_32);
 	read_write_conv_t val;
@@ -690,7 +690,7 @@ inline void wlpdstm::write64(Transaction *tx, uint64_t *addr, uint64_t val64) {
 		tx->WriteWord(first_word_addr + 1, (Word)val.b32[1], (Word)mask.b32[1]);
 		tx->WriteWord(first_word_addr + 2, (Word)val.b32[2], (Word)mask.b32[2]);
 	}
-#elif defined WLPDSTM_64
+#elif defined TLSTM_64
 	unsigned pos = (uintptr_t)addr & MASK_64;
 		
 	if(pos == 0x0) {
@@ -732,30 +732,30 @@ inline void wlpdstm::write64(Transaction *tx, uint64_t *addr, uint64_t val64) {
 }
 
 // TODO: check if this should be decomposed maybe
-inline void wlpdstm::write_float(Transaction *tx, float *addr, float valf) {
+inline void tlstm::write_float(Transaction *tx, float *addr, float valf) {
 	read_write_conv_t val;
 	val.f[0] = valf;
 	write32(tx, (uint32_t *)addr, val.b32[0]);
 }
 
-inline void wlpdstm::write_double(Transaction *tx, double *addr, double vald) {
+inline void tlstm::write_double(Transaction *tx, double *addr, double vald) {
 	read_write_conv_t val;
 	val.d[0] = vald;
 	write64(tx, (uint64_t *)addr, val.b64[0]);	
 }
 
-#ifdef WLPDSTM_ICC
-inline void wlpdstm::write_m128(Transaction *tx, __m128 *addr, __m128 val) {
+#ifdef TLSTM_ICC
+inline void tlstm::write_m128(Transaction *tx, __m128 *addr, __m128 val) {
 	read_write_conv_t value;
 	value.m128[0] = val;
 	uint64_t *addr64 = (uint64_t *)addr;
 	write64(tx, addr64, value.b64[0]);
 	write64(tx, addr64 + 1, value.b64[1]);
 }
-#endif /* WLPDSTM_ICC */
+#endif /* TLSTM_ICC */
 
-inline void wlpdstm::write8aligned(Transaction *tx, uint8_t *addr, uint8_t val8) {
-#ifdef WLPDSTM_32
+inline void tlstm::write8aligned(Transaction *tx, uint8_t *addr, uint8_t val8) {
+#ifdef TLSTM_32
 	unsigned pos = ((uintptr_t)addr & MASK_32) >> SHIFT_8;
 	read_write_conv_t mask;
 	mask.b32[0] = 0;
@@ -763,7 +763,7 @@ inline void wlpdstm::write8aligned(Transaction *tx, uint8_t *addr, uint8_t val8)
 	read_write_conv_t val;
 	val.b8[pos] = val8;
 	tx->WriteWord((Word *)(((uintptr_t)addr) & ~MASK_32), (Word)val.b32[0], (Word)mask.b32[0]);
-#elif defined WLPDSTM_64
+#elif defined TLSTM_64
 	unsigned pos = ((uintptr_t)addr & MASK_64) >> SHIFT_8;
 	read_write_conv_t mask;
 	mask.b64[0] = 0;
@@ -774,8 +774,8 @@ inline void wlpdstm::write8aligned(Transaction *tx, uint8_t *addr, uint8_t val8)
 #endif /* word_size */
 }
 	
-inline void wlpdstm::write16aligned(Transaction *tx, uint16_t *addr, uint16_t val16) {
-#ifdef WLPDSTM_32
+inline void tlstm::write16aligned(Transaction *tx, uint16_t *addr, uint16_t val16) {
+#ifdef TLSTM_32
 	unsigned pos = ((uintptr_t)addr & MASK_32) >> SHIFT_16;
 	read_write_conv_t mask;
 	mask.b32[0] = 0;
@@ -783,7 +783,7 @@ inline void wlpdstm::write16aligned(Transaction *tx, uint16_t *addr, uint16_t va
 	read_write_conv_t val;
 	val.b16[pos] = val16;
 	tx->WriteWord((Word *)(((uintptr_t)addr) & ~MASK_32), (Word)val.b32[0], (Word)mask.b32[0]);
-#elif defined WLPDSTM_64
+#elif defined TLSTM_64
 	unsigned pos = ((uintptr_t)addr & MASK_64) >> SHIFT_16;
 	read_write_conv_t mask;
 	mask.b64[0] = 0;
@@ -794,10 +794,10 @@ inline void wlpdstm::write16aligned(Transaction *tx, uint16_t *addr, uint16_t va
 #endif /* word_size */		
 }
 
-inline void wlpdstm::write32aligned(Transaction *tx, uint32_t *addr, uint32_t val32) {
-#ifdef WLPDSTM_32
+inline void tlstm::write32aligned(Transaction *tx, uint32_t *addr, uint32_t val32) {
+#ifdef TLSTM_32
 	tx->WriteWord((Word *)addr, (Word)val32);
-#elif defined WLPDSTM_64
+#elif defined TLSTM_64
 	unsigned pos = ((uintptr_t)addr & MASK_64) >> SHIFT_32;
 	read_write_conv_t mask;
 	mask.b64[0] = 0;
@@ -808,23 +808,23 @@ inline void wlpdstm::write32aligned(Transaction *tx, uint32_t *addr, uint32_t va
 #endif /* word_size */
 }
 
-inline void wlpdstm::write64aligned(Transaction *tx, uint64_t *addr, uint64_t val64) {
-#ifdef WLPDSTM_32
+inline void tlstm::write64aligned(Transaction *tx, uint64_t *addr, uint64_t val64) {
+#ifdef TLSTM_32
 	read_write_conv_t val;
 	val.b64[0] = val64;
 	tx->WriteWord((Word *)addr, val.b32[0]);
 	tx->WriteWord(((Word *)addr) + 1, val.b32[1]);		
-#elif defined WLPDSTM_64
+#elif defined TLSTM_64
 	tx->WriteWord((Word *)addr, (Word)val64);
 #endif /* word_size */
 }
 	
-inline void wlpdstm::write_float_aligned(Transaction *tx, float *addr, float valf) {
-#ifdef WLPDSTM_32
+inline void tlstm::write_float_aligned(Transaction *tx, float *addr, float valf) {
+#ifdef TLSTM_32
 	read_write_conv_t val;
 	val.f[0] = valf;
 	tx->WriteWord((Word *)addr, (Word)val.b32[0]);
-#elif defined WLPDSTM_64
+#elif defined TLSTM_64
 	unsigned pos = ((uintptr_t)addr & MASK_64) >> SHIFT_32;
 	read_write_conv_t mask;
 	mask.b64[0] = 0;
@@ -835,20 +835,20 @@ inline void wlpdstm::write_float_aligned(Transaction *tx, float *addr, float val
 #endif /* word_size */
 }
 
-inline void wlpdstm::write_double_aligned(Transaction *tx, double *addr, double vald) {
-#ifdef WLPDSTM_32
+inline void tlstm::write_double_aligned(Transaction *tx, double *addr, double vald) {
+#ifdef TLSTM_32
 	read_write_conv_t val;
 	val.d[0] = vald;
 	tx->WriteWord((Word *)addr, val.b32[0]);
 	tx->WriteWord(((Word *)addr) + 1, val.b32[1]);
-#elif defined WLPDSTM_64
+#elif defined TLSTM_64
 	read_write_conv_t val;
 	val.d[0] = vald;
 	tx->WriteWord((Word *)addr, (Word)val.b64[0]);
 #endif /* word_size */
 }
 
-inline void wlpdstm::write_region(Transaction *tx, uint8_t *src, uintptr_t bytes, uint8_t *dest) {
+inline void tlstm::write_region(Transaction *tx, uint8_t *src, uintptr_t bytes, uint8_t *dest) {
 	unsigned bytes_written = 0;
 
 	read_write_conv_t val;
@@ -937,7 +937,7 @@ inline void wlpdstm::write_region(Transaction *tx, uint8_t *src, uintptr_t bytes
 // tx versions of standard functions start //
 /////////////////////////////////////////////
 
-inline void *wlpdstm::memset_tx(Transaction *tx, void *dest, int c, size_t n) {
+inline void *tlstm::memset_tx(Transaction *tx, void *dest, int c, size_t n) {
 	read_write_conv_t val;
 	read_write_conv_t mask;
 	Word *next_word_addr = (Word *)((uintptr_t)dest & ~MASK);
@@ -993,11 +993,11 @@ inline void *wlpdstm::memset_tx(Transaction *tx, void *dest, int c, size_t n) {
 }
 
 // TODO: think about implementing memcpy and memmove differently
-inline void *wlpdstm::memcpy_tx(Transaction *tx, void *dest, const void *src, size_t n) {
+inline void *tlstm::memcpy_tx(Transaction *tx, void *dest, const void *src, size_t n) {
 	return memmove_tx(tx, dest, src, n);
 }
 
-inline void *wlpdstm::memmove_tx(Transaction *tx, void *dest, const void *src, size_t n) {
+inline void *tlstm::memmove_tx(Transaction *tx, void *dest, const void *src, size_t n) {
 	uint8_t *buf = (uint8_t *)MemoryManager::Malloc(n);
 	read_region(tx, (uint8_t *)src, n, buf);
 	write_region(tx, buf, n, (uint8_t *)dest);
@@ -1005,7 +1005,7 @@ inline void *wlpdstm::memmove_tx(Transaction *tx, void *dest, const void *src, s
 	return dest;
 }
 
-inline int wlpdstm::strcmp_tx(Transaction *tx, const char *str_1, const char *str_2) {
+inline int tlstm::strcmp_tx(Transaction *tx, const char *str_1, const char *str_2) {
 	Word *next_word_addr_1 = (Word *)((uintptr_t)str_1 & ~MASK);
 	Word *next_word_addr_2 = (Word *)((uintptr_t)str_2 & ~MASK);
 	uintptr_t i_1 = (uintptr_t)str_1 & MASK;
@@ -1047,7 +1047,7 @@ return_point:
 	return ret;
 }
 
-inline int wlpdstm::strncmp_tx(Transaction *tx, const char *str_1, const char *str_2, size_t n) {
+inline int tlstm::strncmp_tx(Transaction *tx, const char *str_1, const char *str_2, size_t n) {
 	if(n == 0) {
 		return 0;
 	}
@@ -1095,7 +1095,7 @@ return_point:
 	return ret;
 }
 
-inline void wlpdstm::qsort_tx(Transaction *tx, void *base, size_t nel, size_t width,
+inline void tlstm::qsort_tx(Transaction *tx, void *base, size_t nel, size_t width,
 							  int (*compar)(const void *, const void *)) {
 	size_t size = nel * width;
 	tx->LockMemoryBlock(base, size);

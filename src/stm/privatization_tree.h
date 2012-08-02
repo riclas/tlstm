@@ -2,8 +2,8 @@
  * @author Aleksandar Dragojevic aleksandar.dragojevic@epfl.ch
  */
 
-#ifndef WLPDSTM_PRIVATIZATION_TREE_H_
-#define WLPDSTM_PRIVATIZATION_TREE_H_
+#ifndef TLSTM_PRIVATIZATION_TREE_H_
+#define TLSTM_PRIVATIZATION_TREE_H_
 
 #include <assert.h>
 #include <stdio.h>
@@ -16,7 +16,7 @@
 #define PRIVATIZATION_TREE_NODE_COUNT (MAX_THREADS * 2 - 1)
 #define PRIVATIZATION_TREE_PROXY_COUNT (PRIVATIZATION_TREE_NODE_COUNT >> 1)
 
-namespace wlpdstm {
+namespace tlstm {
 
 	class PrivatizationTree {
 		public:
@@ -45,7 +45,7 @@ namespace wlpdstm {
 
 			unsigned is_root_node_idx(unsigned node_idx);
 
-			static unsigned wlpdstm_log2(uint64_t input);
+			static unsigned tlstm_log2(uint64_t input);
 
 			Word calculate_parent_ts(Word my_ts, Word sibling_ts);
 
@@ -77,28 +77,28 @@ namespace wlpdstm {
 	};
 }
 
-inline unsigned wlpdstm::PrivatizationTree::get_parent_node_idx(unsigned node_idx) {
+inline unsigned tlstm::PrivatizationTree::get_parent_node_idx(unsigned node_idx) {
 	return (node_idx >> 1) + MAX_THREADS;
 }
 
-inline unsigned wlpdstm::PrivatizationTree::get_sibling_node_idx(unsigned node_idx) {
+inline unsigned tlstm::PrivatizationTree::get_sibling_node_idx(unsigned node_idx) {
 	return (node_idx & ~1) + (1 - (node_idx & 1));
 }
 
-inline unsigned wlpdstm::PrivatizationTree::get_proxy_node_idx(unsigned node_idx) {
+inline unsigned tlstm::PrivatizationTree::get_proxy_node_idx(unsigned node_idx) {
 	return node_idx >> 1;
 }
 
-inline unsigned wlpdstm::PrivatizationTree::get_root_node_idx(unsigned count) {
+inline unsigned tlstm::PrivatizationTree::get_root_node_idx(unsigned count) {
 	return map_count_to_root_idx[count - 1];
 }
 
-inline unsigned wlpdstm::PrivatizationTree::is_root_node_idx(unsigned node_idx) {
+inline unsigned tlstm::PrivatizationTree::is_root_node_idx(unsigned node_idx) {
 	return node_idx == get_root_node_idx(*thread_count);
 }
 
 /* this works only for two threads
-inline void wlpdstm::PrivatizationTree::setNonMinimumTs(Word ts) {
+inline void tlstm::PrivatizationTree::setNonMinimumTs(Word ts) {
 	atomic_store_full(&(tree_nodes[my_tree_node_idx].val), ts);
 	
 	unsigned node_idx = my_tree_node_idx;
@@ -127,7 +127,7 @@ inline void wlpdstm::PrivatizationTree::setNonMinimumTs(Word ts) {
 }
 */
  
-inline void wlpdstm::PrivatizationTree::setNonMinimumTs(Word ts) {
+inline void tlstm::PrivatizationTree::setNonMinimumTs(Word ts) {
 	atomic_store_full(&(tree_nodes[my_tree_node_idx].val), ts);
 
 	unsigned node_idx = my_tree_node_idx;
@@ -173,7 +173,7 @@ inline void wlpdstm::PrivatizationTree::setNonMinimumTs(Word ts) {
 }
 
 /*
-inline void wlpdstm::PrivatizationTree::setNonMinimumTs(Word ts) {
+inline void tlstm::PrivatizationTree::setNonMinimumTs(Word ts) {
 	tree_nodes[my_tree_node_idx].val = ts;
 	
 	unsigned node_idx = my_tree_node_idx;
@@ -198,7 +198,7 @@ inline void wlpdstm::PrivatizationTree::setNonMinimumTs(Word ts) {
 }
 */
 
-inline Word wlpdstm::PrivatizationTree::calculate_parent_ts(Word my_ts, Word sibling_ts) {
+inline Word tlstm::PrivatizationTree::calculate_parent_ts(Word my_ts, Word sibling_ts) {
 	Word ret;
 
 	if(my_ts == MINIMUM_TS || (sibling_ts != MINIMUM_TS && sibling_ts < my_ts)) {
@@ -222,7 +222,7 @@ inline Word wlpdstm::PrivatizationTree::calculate_parent_ts(Word my_ts, Word sib
 }
 
 /*
-inline void wlpdstm::PrivatizationTree::setMinimumTs() {
+inline void tlstm::PrivatizationTree::setMinimumTs() {
 	//tree_nodes[my_tree_node_idx].val = MINIMUM_TS;
 	atomic_store_release(&(tree_nodes[my_tree_node_idx].val), MINIMUM_TS);
 	
@@ -268,7 +268,7 @@ inline void wlpdstm::PrivatizationTree::setMinimumTs() {
 	}
 }*/
 
-inline void wlpdstm::PrivatizationTree::wait(Word ts) {
+inline void tlstm::PrivatizationTree::wait(Word ts) {
 	// wait only on the root of the tree
 	while(true) {
 		unsigned root_node_idx = get_root_node_idx(*thread_count);
@@ -282,7 +282,7 @@ inline void wlpdstm::PrivatizationTree::wait(Word ts) {
 }
 
 
-inline void wlpdstm::PrivatizationTree::GlobalInit() {
+inline void tlstm::PrivatizationTree::GlobalInit() {
 	InitializeCountToRootMap();
 	Clean();
 }
@@ -293,7 +293,7 @@ inline void wlpdstm::PrivatizationTree::GlobalInit() {
  * This function is only called during initialization, so it does not need to
  * be particularly efficient.
  */
-inline unsigned wlpdstm::PrivatizationTree::wlpdstm_log2(uint64_t input) {
+inline unsigned tlstm::PrivatizationTree::tlstm_log2(uint64_t input) {
 	unsigned i =  0;
 
 	while(i <= MAX_SHIFT) {
@@ -308,9 +308,9 @@ inline unsigned wlpdstm::PrivatizationTree::wlpdstm_log2(uint64_t input) {
 	return 0; // to avoid compiler complaints
 }
 
-inline void wlpdstm::PrivatizationTree::InitializeCountToRootMap() {
+inline void tlstm::PrivatizationTree::InitializeCountToRootMap() {
 	for(unsigned i = 0;i < MAX_THREADS;i++) {
-		unsigned go_up_count = wlpdstm_log2((uint64_t)i + 1);
+		unsigned go_up_count = tlstm_log2((uint64_t)i + 1);
 		unsigned root_idx = i;
 
 		for(unsigned j = 0;j < go_up_count;j++) {
@@ -321,7 +321,7 @@ inline void wlpdstm::PrivatizationTree::InitializeCountToRootMap() {
 	}
 }
 
-inline void wlpdstm::PrivatizationTree::Clean() {
+inline void tlstm::PrivatizationTree::Clean() {
 	for(unsigned i = 0;i < PRIVATIZATION_TREE_NODE_COUNT;i++) {
 		tree_nodes[i].val = MINIMUM_TS;
 	}
@@ -331,10 +331,10 @@ inline void wlpdstm::PrivatizationTree::Clean() {
 	}
 }
 
-inline void wlpdstm::PrivatizationTree::ThreadInit(unsigned tid, Word *tc) {
+inline void tlstm::PrivatizationTree::ThreadInit(unsigned tid, Word *tc) {
 	thread_count = tc;
 	my_tree_node_idx = tid;
 }
 
 
-#endif /* WLPDSTM_PRIVATIZATION_TREE_H_ */
+#endif /* TLSTM_PRIVATIZATION_TREE_H_ */

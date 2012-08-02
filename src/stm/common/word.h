@@ -3,12 +3,12 @@
  *
  */
 
-#ifndef WLPDSTM_WORD_H_
-#define WLPDSTM_WORD_H_
+#ifndef TLSTM_WORD_H_
+#define TLSTM_WORD_H_
 
 #include <stdint.h>
 
-//namespace wlpdstm {
+//namespace tlstm {
 
 #ifdef __cplusplus
 extern "C" {
@@ -19,4 +19,4 @@ extern "C" {
 #endif /* __cplusplus */
 
 
-#endif /* WLPDSTM_WORD_H_ */
+#endif /* TLSTM_WORD_H_ */

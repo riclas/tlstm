@@ -29,7 +29,7 @@
 #include <time.h>
 
 
-#ifdef MUBENCH_WLPDSTM
+#ifdef MUBENCH_TLSTM
 #include <atomic_ops.h>
 #include "stm.h"
 #elif defined MUBENCH_TANGER
@@ -41,19 +41,19 @@
 /* Note: stdio is thread-safe */
 #endif
 
-#ifdef MUBENCH_WLPDSTM
+#ifdef MUBENCH_TLSTM
 #define fetch_and_inc_full(addr) (AO_fetch_and_add1_full((volatile AO_t *)(addr)))
 
 #define START                           BEGIN_TRANSACTION_DESC
 #define START_ID(ID, commit, serial, start, last)       BEGIN_TRANSACTION_DESC_ID(ID, commit, serial, start, last)
 #define START_RO                        START
 #define START_RO_ID(ID, commit, serial, start, last)    START_ID(ID, commit, serial, start, last)
-#define LOAD(addr)                      wlpdstm_read_word_desc(tx, (Word *)(addr))
-#define STORE(addr, value)              wlpdstm_write_word_desc(tx, (Word *)addr, (Word)value)
+#define LOAD(addr)                      tlstm_read_word_desc(tx, (Word *)(addr))
+#define STORE(addr, value)              tlstm_write_word_desc(tx, (Word *)addr, (Word)value)
 #define COMMIT                          END_TRANSACTION
-#define MALLOC(size)                    wlpdstm_tx_malloc_desc(tx, size)
-#define FREE(addr, size)                wlpdstm_tx_free_desc(tx, addr, size)
-#define INC_SERIAL(ptid)                serial = wlpdstm_inc_serial(tx, ptid)
+#define MALLOC(size)                    tlstm_tx_malloc_desc(tx, size)
+#define FREE(addr, size)                tlstm_tx_free_desc(tx, addr, size)
+#define INC_SERIAL(ptid)                serial = tlstm_inc_serial(tx, ptid)
 
 #elif defined MUBENCH_TANGER
 
@@ -96,11 +96,11 @@
  * GLOBALS
  * ################################################################### */
 
-#ifdef MUBENCH_WLPDSTM
+#ifdef MUBENCH_TLSTM
 static volatile AO_t stop;
 #else
 static volatile int stop;
-#endif /* MUBENCH_WLPDSTM */
+#endif /* MUBENCH_TLSTM */
 
 #ifdef USE_RBTREE
 
@@ -108,21 +108,21 @@ static volatile int stop;
  * RBTREE
  * ################################################################### */
 
-#ifdef  MUBENCH_WLPDSTM
+#ifdef  MUBENCH_TLSTM
 #define TM_ARGDECL_ALONE                tx_desc* tx
 #define TM_ARGDECL                      tx_desc* tx,
 #define TM_ARG                          tx, 
 #define TM_ARG_LAST                     , tx
 #define TM_ARG_ALONE                    tx
-#define TM_STARTUP()                    wlpdstm_global_init(nb_tasks)
+#define TM_STARTUP()                    tlstm_global_init(nb_tasks)
 #ifdef COLLECT_STATS
-#define TM_SHUTDOWN()                   wlpdstm_print_stats()
+#define TM_SHUTDOWN()                   tlstm_print_stats()
 #else
 #define TM_SHUTDOWN()                   /* nothing */
 #endif /* COLLECT_STATS */
 
-#define TM_THREAD_ENTER(ptid, taskid)               wlpdstm_thread_init(ptid, taskid); \
-										tx_desc *tx = wlpdstm_get_tx_desc()
+#define TM_THREAD_ENTER(ptid, taskid)               tlstm_thread_init(ptid, taskid); \
+										tx_desc *tx = tlstm_get_tx_desc()
 
 #define TM_THREAD_EXIT()                /* nothing */
 
@@ -210,7 +210,7 @@ int set_add_seq(intset_t *set, intptr_t val) {
 	return !rbtree_insert(set, val, val);
 }
 
-#ifdef MUBENCH_WLPDSTM
+#ifdef MUBENCH_TLSTM
 int set_add(intset_t *set, intptr_t val, int commit, int serial, int start, int last, tx_desc *tx)
 {
 	int res = 0;
@@ -237,7 +237,7 @@ int set_add(intset_t *set, intptr_t val)
 }
 #endif /* MUBENCH_TANGER || MUBENCH_SEQUENTIAL */
 
-#ifdef MUBENCH_WLPDSTM
+#ifdef MUBENCH_TLSTM
 int set_remove(intset_t *set, intptr_t val, int commit, int serial, int start, int last, tx_desc *tx)
 {
 	int res = 0;
@@ -263,7 +263,7 @@ int set_remove(intset_t *set, intptr_t val)
 }
 #endif /* MUBENCH_TANGER || MUBENCH_SEQUENTIAL */
 
-#ifdef MUBENCH_WLPDSTM
+#ifdef MUBENCH_TLSTM
 int set_contains(intset_t *set, intptr_t val, int commit, int serial, int start, int last, tx_desc *tx)
 {
 	int res = 0, i;
@@ -304,7 +304,7 @@ typedef struct intset {
   node_t *head;
 } intset_t;
 
-#ifdef MUBENCH_WLPDSTM
+#ifdef MUBENCH_TLSTM
 node_t *new_node(int val, node_t *next, tx_desc *tx)
 {
 	node_t *node;
@@ -412,7 +412,7 @@ int set_add_seq(intset_t *set, int val)
 	return result;
 }
 
-#ifdef MUBENCH_WLPDSTM
+#ifdef MUBENCH_TLSTM
 int set_add(intset_t *set, int val, tx_desc *tx)
 {
 	int result;
@@ -471,7 +471,7 @@ int set_add(intset_t *set, int val)
 }
 #endif /* MUBENCH_TANGER || MUBENCH_SEQUENTIAL */
 
-#ifdef MUBENCH_WLPDSTM
+#ifdef MUBENCH_TLSTM
 int set_remove(intset_t *set, int val, tx_desc *tx)
 {
 	int result;
@@ -536,7 +536,7 @@ int set_remove(intset_t *set, int val)
 }
 #endif /* MUBENCH_TANGER || MUBENCH_SEQUENTIAL */
 
-#ifdef MUBENCH_WLPDSTM
+#ifdef MUBENCH_TLSTM
 int set_contains(intset_t *set, int val, tx_desc *tx)
 {
 	int result;
@@ -708,11 +708,11 @@ void* task_threads(void *data){
   //int last = -1;
   //int val;
 
-#ifdef MUBENCH_WLPDSTM
+#ifdef MUBENCH_TLSTM
   while(serial < NUM_OPS * d->nb_tasks){
 #else
   while (stop == 0) {
-#endif /* MUBENCH_WLPDSTM */
+#endif /* MUBENCH_TLSTM */
 
 	//INC_SERIAL(d->ptid);
 /*
@@ -888,11 +888,11 @@ void *program_thread(void *data)
 
   nanosleep(d->timeout, NULL);
 
-#ifdef MUBENCH_WLPDSTM
+#ifdef MUBENCH_TLSTM
   while (AO_load_full(&stop) == 0) {
 #else
   while (stop == 0) {
-#endif // MUBENCH_WLPDSTM
+#endif // MUBENCH_TLSTM
 
 	  //for (i = 0; i < d->nb_tasks; i++) {
 		  //dispatch(tp, task, &d->tasks[i], task_id++);
@@ -1194,11 +1194,11 @@ int main(int argc, char **argv)
   /*if (duration > 0) {
     nanosleep(&timeout, NULL);
   }*/
-#ifdef MUBENCH_WLPDSTM
+#ifdef MUBENCH_TLSTM
   //AO_store_full(&stop, 1);
 #else
   stop = 1;
-#endif /* MUBENCH_WLPDSTM */
+#endif /* MUBENCH_TLSTM */
 
   /* Wait for thread completion */
   for (i = 0; i < nb_threads*nb_tasks; i++) {

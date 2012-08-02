@@ -9,7 +9,7 @@ TANGER_OBJFILES = $(TANGER_OBJ_DIR)/tanger.o $(TANGER_OBJ_DIR)/tid.o \
 	$(TANGER_OBJ_DIR)/tanger_string.o $(TANGER_OBJ_DIR)/tanger_stdlib.o \
 	#$(TANGER_OBJ_DIR)/tanger_stack_area.o
 
-all: $(TANGER_OBJ_DIR) $(WLPDSTM_LIB_DIR) $(TANGER_LIB).bc $(TANGER_LIB).a intset-rbtree-tanger
+all: $(TANGER_OBJ_DIR) $(TLSTM_LIB_DIR) $(TANGER_LIB).bc $(TANGER_LIB).a intset-rbtree-tanger
 
 MUBENCH = $(TANGER_OBJ_DIR)/intset-rbtree-tanger
 
@@ -22,8 +22,8 @@ MUBENCH = $(TANGER_OBJ_DIR)/intset-rbtree-tanger
 $(TANGER_OBJ_DIR):
 	mkdir -p $(TANGER_OBJ_DIR)
 
-$(WLPDSTM_LIB_DIR):
-	mkdir -p $(WLPDSTM_LIB_DIR)
+$(TLSTM_LIB_DIR):
+	mkdir -p $(TLSTM_LIB_DIR)
 
 ###################
 # create bc files #

@@ -1,9 +1,9 @@
-#ifndef WLPDSTM_CONSTANTS_H_
-#define WLPDSTM_CONSTANTS_H_
+#ifndef TLSTM_CONSTANTS_H_
+#define TLSTM_CONSTANTS_H_
 
-#ifdef WLPDSTM_X86
+#ifdef TLSTM_X86
 #define CACHE_LINE_SIZE_BYTES 64
-#elif defined WLPDSTM_SPARC
+#elif defined TLSTM_SPARC
 #define CACHE_LINE_SIZE_BYTES 64
 #endif /* arch */
 
@@ -11,12 +11,12 @@
 
 #include "common/word.h"
 
-namespace wlpdstm {
+namespace tlstm {
 
-#ifdef WLPDSTM_32
+#ifdef TLSTM_32
 	const unsigned ADDRESS_SPACE_SIZE = 32;
 	const unsigned LOG_BYTES_IN_WORD = 2;
-#elif defined WLPDSTM_64
+#elif defined TLSTM_64
 	const unsigned ADDRESS_SPACE_SIZE = 64;
 	const unsigned LOG_BYTES_IN_WORD = 3;
 #endif /* X86_64 */

@@ -4,12 +4,12 @@
  * @author Aleksandar Dragojevic
  */
 
-#ifndef WLPDSTM_CACHE_ALIGNED_ALLOC_H_
-#define WLPDSTM_CACHE_ALIGNED_ALLOC_H_
+#ifndef TLSTM_CACHE_ALIGNED_ALLOC_H_
+#define TLSTM_CACHE_ALIGNED_ALLOC_H_
 
 #include <stdint.h>
 
-namespace wlpdstm {
+namespace tlstm {
 
 	template<uintptr_t BOUNDARY>
 	class AlignedAlloc {
@@ -32,4 +32,4 @@ namespace wlpdstm {
 	typedef AlignedAlloc<CACHE_LINE_SIZE_BYTES> CacheAlignedAlloc;
 }
 
-#endif /* WLPDSTM_CACHE_ALIGNED_ALLOC_H_ */
+#endif /* TLSTM_CACHE_ALIGNED_ALLOC_H_ */

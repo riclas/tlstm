@@ -3,10 +3,10 @@
  *
  */
 
-#ifndef WLPDSTM_PADDED_H_
-#define WLPDSTM_PADDED_H_
+#ifndef TLSTM_PADDED_H_
+#define TLSTM_PADDED_H_
 
-namespace wlpdstm {
+namespace tlstm {
 	
 	union PaddedUnsigned {
 		volatile unsigned val;
@@ -24,4 +24,4 @@ namespace wlpdstm {
 	};	
 }
 
-#endif /* WLPDSTM_PADDED_H_ */
+#endif /* TLSTM_PADDED_H_ */

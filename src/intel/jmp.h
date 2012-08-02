@@ -4,8 +4,8 @@
  * @author Aleksandar Dragojevic aleksandar.dragojevic@epfl.ch
  */
 
-#ifndef WLPDSTM_ICC_JMP_H_
-#define WLPDSTM_ICC_JMP_H_
+#ifndef TLSTM_ICC_JMP_H_
+#define TLSTM_ICC_JMP_H_
 
 #include <itm.h>
 #include <stdint.h>
@@ -28,4 +28,4 @@ _ITM_CALL_CONVENTION void jmp_to_begin_transaction(begin_transaction_jmpbuf *td)
 }
 #endif
 		
-#endif /* WLPDSTM_ICC_JMP_H_ */
+#endif /* TLSTM_ICC_JMP_H_ */

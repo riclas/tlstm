@@ -2,10 +2,10 @@
  * @author Aleksandar Dragojevic aleksandar.dragojevic@epfl.ch
  */
 
-#ifndef WLPDSTM_TLS_H_
-#define WLPDSTM_TLS_H_
+#ifndef TLSTM_TLS_H_
+#define TLSTM_TLS_H_
 
-namespace wlpdstm {
+namespace tlstm {
 
 	///////////////////////
 	// invoke init start //
@@ -47,7 +47,7 @@ namespace wlpdstm {
 
 #include <pthread.h>
 
-namespace wlpdstm {
+namespace tlstm {
 	/**
 	 * This is a TLS class that will put one instance of templated
 	 * class into TLS storage and provide access to it. Assumption here
@@ -68,11 +68,11 @@ namespace wlpdstm {
 	};
 }
 
-template<class T, bool GLOBAL_INIT, bool THREAD_INIT> ::pthread_key_t wlpdstm::Tls<T, GLOBAL_INIT, THREAD_INIT>::tlsKey;
-template<class T, bool GLOBAL_INIT, bool THREAD_INIT> ::pthread_key_t wlpdstm::Tls<T, GLOBAL_INIT, THREAD_INIT>::initKey;
+template<class T, bool GLOBAL_INIT, bool THREAD_INIT> ::pthread_key_t tlstm::Tls<T, GLOBAL_INIT, THREAD_INIT>::tlsKey;
+template<class T, bool GLOBAL_INIT, bool THREAD_INIT> ::pthread_key_t tlstm::Tls<T, GLOBAL_INIT, THREAD_INIT>::initKey;
 
 template<class T, bool GLOBAL_INIT, bool THREAD_INIT>
-inline void wlpdstm::Tls<T, GLOBAL_INIT, THREAD_INIT>::GlobalInit() {
+inline void tlstm::Tls<T, GLOBAL_INIT, THREAD_INIT>::GlobalInit() {
 	::pthread_key_create(&tlsKey, NULL);
 	GlobalInitInvoker<T, GLOBAL_INIT>::GlobalInit();
 
@@ -82,7 +82,7 @@ inline void wlpdstm::Tls<T, GLOBAL_INIT, THREAD_INIT>::GlobalInit() {
 }
 
 template<class T, bool GLOBAL_INIT, bool THREAD_INIT>
-inline void wlpdstm::Tls<T, GLOBAL_INIT, THREAD_INIT>::ThreadInit() {
+inline void tlstm::Tls<T, GLOBAL_INIT, THREAD_INIT>::ThreadInit() {
 	bool initialized = (bool)::pthread_getspecific(initKey);
 
 	if(!initialized) {
@@ -94,13 +94,13 @@ inline void wlpdstm::Tls<T, GLOBAL_INIT, THREAD_INIT>::ThreadInit() {
 }
 
 template<class T, bool GLOBAL_INIT, bool THREAD_INIT>
-inline T *wlpdstm::Tls<T, GLOBAL_INIT, THREAD_INIT>::Get() {
+inline T *tlstm::Tls<T, GLOBAL_INIT, THREAD_INIT>::Get() {
 	return (T *)::pthread_getspecific(tlsKey);
 }
 
 #else
 
-namespace wlpdstm {
+namespace tlstm {
 
 	template<class T, bool GLOBAL_INIT, bool THREAD_INIT>
 	class Tls {
@@ -128,14 +128,14 @@ namespace wlpdstm {
 }
 
 #if defined(__INTEL_COMPILER)
-template<class T, bool GLOBAL_INIT, bool THREAD_INIT> T* wlpdstm::Tls<T, GLOBAL_INIT, THREAD_INIT>::val;
-template<class T, bool GLOBAL_INIT, bool THREAD_INIT> bool wlpdstm::Tls<T, GLOBAL_INIT, THREAD_INIT>::init;
+template<class T, bool GLOBAL_INIT, bool THREAD_INIT> T* tlstm::Tls<T, GLOBAL_INIT, THREAD_INIT>::val;
+template<class T, bool GLOBAL_INIT, bool THREAD_INIT> bool tlstm::Tls<T, GLOBAL_INIT, THREAD_INIT>::init;
 #else
-template<class T, bool GLOBAL_INIT, bool THREAD_INIT> __thread T* wlpdstm::Tls<T, GLOBAL_INIT, THREAD_INIT>::val;
-template<class T, bool GLOBAL_INIT, bool THREAD_INIT> __thread bool wlpdstm::Tls<T, GLOBAL_INIT, THREAD_INIT>::init;
+template<class T, bool GLOBAL_INIT, bool THREAD_INIT> __thread T* tlstm::Tls<T, GLOBAL_INIT, THREAD_INIT>::val;
+template<class T, bool GLOBAL_INIT, bool THREAD_INIT> __thread bool tlstm::Tls<T, GLOBAL_INIT, THREAD_INIT>::init;
 #endif
 
 
 #endif // USE_PTHREAD_TLS
 
-#endif // WLPDSTM_TLS_H_
+#endif // TLSTM_TLS_H_

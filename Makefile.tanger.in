@@ -9,9 +9,9 @@ endif
 include Makefile.in
 
 # dirs
-WLPDSTM_LIB_DIR = /home/dragojev/work/wlpdstm/lib
+TLSTM_LIB_DIR = /home/dragojev/work/tlstm/lib
 TANGER_OBJ_DIR = $(TARGET_DIR)/tanger_obj
-TANGER_LIB = $(WLPDSTM_LIB_DIR)/libtanger-stm
+TANGER_LIB = $(TLSTM_LIB_DIR)/libtanger-stm
 
 #LLVM_INCLUDE_DIR = /Users/aleksandar/work/llvm/install/include
 
@@ -35,7 +35,7 @@ TANGER_INCLUDE_DIR = $(TANGER_HOME)/include
 TANGER_LIB_DIR = $(TANGER_HOME)/lib
 TANGERINCLUDE ?= $(TANGER_INCLUDE_DIR)
 INCLUDE += -I $(TANGERINCLUDE)
-STMLIBDIR ?= /home/dragojev/work/wlpdstm/lib
+STMLIBDIR ?= /home/dragojev/work/tlstm/lib
 STMSUPPORTDIR = $(TANGER_LIB_DIR)/stmsupport
 LLVMBUILD = $(shell llvm-config --build-mode)
 TANGERPASS = $(TANGER_HOME)/$(LLVMBUILD)/lib/libtanger.so

@@ -5,12 +5,12 @@
  *
  */
 
-#ifndef WLPDSTM_ARCH_H_
-#define WLPDSTM_ARCH_H_
+#ifndef TLSTM_ARCH_H_
+#define TLSTM_ARCH_H_
 
 #include <stdint.h>
 
-namespace wlpdstm {
+namespace tlstm {
 
 	uintptr_t read_sp();
 
@@ -18,8 +18,8 @@ namespace wlpdstm {
 	
 }
 
-inline uintptr_t wlpdstm::read_sp() {
-#ifdef WLPDSTM_X86
+inline uintptr_t tlstm::read_sp() {
+#ifdef TLSTM_X86
 	uintptr_t ret;
 	__asm__ volatile ("mov %%esp, %0" : "=A" (ret) : : "%eax");
 	return ret;	
@@ -28,8 +28,8 @@ inline uintptr_t wlpdstm::read_sp() {
 #endif  /* arch */
 }
 
-inline uintptr_t wlpdstm::read_bp() {
-#ifdef WLPDSTM_X86
+inline uintptr_t tlstm::read_bp() {
+#ifdef TLSTM_X86
 	uintptr_t ret;
 	__asm__ volatile ("mov %%ebp, %0" : "=A" (ret) : : "%eax");
 	return ret;	
@@ -38,4 +38,4 @@ inline uintptr_t wlpdstm::read_bp() {
 #endif  /* arch */
 }
 
-#endif /* WLPDSTM_ARCH_H_ */
+#endif /* TLSTM_ARCH_H_ */

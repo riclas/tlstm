@@ -14,10 +14,10 @@
 
 #ifdef PERFORMANCE_COUNTING
 
-#ifndef WLPDSTM_PERF_CNT_H_
-#define WLPDSTM_PERF_CNT_H_
+#ifndef TLSTM_PERF_CNT_H_
+#define TLSTM_PERF_CNT_H_
 
-#ifdef WLPDSTM_SOLARIS
+#ifdef TLSTM_SOLARIS
 
 #include "perf_cnt_solaris.h"
 
@@ -25,8 +25,8 @@
 
 #undef PERFORMANCE_COUNTING
 
-#endif /* WLPDSTM_SOLARIS */
+#endif /* TLSTM_SOLARIS */
 
-#endif /* WLPDSTM_PERF_CNT_H_ */
+#endif /* TLSTM_PERF_CNT_H_ */
 
 #endif /* PERFORMANCE_COUNTING */

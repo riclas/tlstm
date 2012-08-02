@@ -8,7 +8,7 @@
 
 #define aword AO_t
 
-namespace wlpdstm {
+namespace tlstm {
 
 	uintptr_t compare_and_swap_release(uintptr_t *addr, uintptr_t oldval, uintptr_t newval);
 }
@@ -29,8 +29,8 @@ namespace wlpdstm {
 #define fetch_and_inc_acquire(addr) (AO_fetch_and_add1_acquire((volatile AO_t *)(addr)))
 #define fetch_and_inc_release(addr) (AO_fetch_and_add1_release((volatile AO_t *)(addr)))
 
-inline uintptr_t wlpdstm::compare_and_swap_release(uintptr_t *addr, uintptr_t oldval, uintptr_t newval) {
-#ifdef WLPDSTM_X86
+inline uintptr_t tlstm::compare_and_swap_release(uintptr_t *addr, uintptr_t oldval, uintptr_t newval) {
+#ifdef TLSTM_X86
     uintptr_t ret;
 	
     asm volatile("lock;"
@@ -39,10 +39,10 @@ inline uintptr_t wlpdstm::compare_and_swap_release(uintptr_t *addr, uintptr_t ol
                  : "q"(newval), "m"(*addr), "a"(oldval)
                  : "memory");
     return ret;	
-#elif defined WLPDSTM_SPARC
-#ifdef WLPDSTM_32
+#elif defined TLSTM_SPARC
+#ifdef TLSTM_32
 	asm volatile("cas [%2], %3, %0;"
-#elif defined WLPDSTM_64
+#elif defined TLSTM_64
 	asm volatile("casx [%2], %3, %0;"
 #endif /* word size */
 				 "membar #LoadStore"
@@ -53,7 +53,7 @@ inline uintptr_t wlpdstm::compare_and_swap_release(uintptr_t *addr, uintptr_t ol
 #endif /* arch */
 }
 
-namespace wlpdstm {
+namespace tlstm {
 
 	template <typename T, T INITIAL_VALUE>
 	class AtomicVariable {

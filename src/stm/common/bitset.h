@@ -5,12 +5,12 @@
  * @author Aleksandar Dragojevic aleksandar.dragojevic@epfl.ch
  */
 
-#ifndef WLPDSTM_BITMASKS_H_
-#define WLPDSTM_BITMASKS_H_
+#ifndef TLSTM_BITMASKS_H_
+#define TLSTM_BITMASKS_H_
 
 #include "atomic.h"
 
-namespace wlpdstm {
+namespace tlstm {
 
 	class BitsetBase {
 		public:
@@ -105,4 +105,4 @@ namespace wlpdstm {
 	};
 }
 
-#endif // WLPDSTM_BITMASKS_H_
+#endif // TLSTM_BITMASKS_H_

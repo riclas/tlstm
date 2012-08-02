@@ -3,12 +3,12 @@
  *
  */
 
-#ifndef WLPDSTM_SAMPLING_H_
-#define WLPDSTM_SAMPLING_H_
+#ifndef TLSTM_SAMPLING_H_
+#define TLSTM_SAMPLING_H_
 
 #define SAMPLING_THRESHOLD 101
 
-namespace wlpdstm {
+namespace tlstm {
 
 	class Sampling {
 		public:
@@ -35,4 +35,4 @@ namespace wlpdstm {
 	};
 }
 
-#endif /* WLPDSTM_SAMPLING_H_ */
+#endif /* TLSTM_SAMPLING_H_ */

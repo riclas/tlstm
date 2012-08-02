@@ -25,23 +25,23 @@ extern "C"
 	// TODO: check whether this needs to call initialize thread
 	// specs are not 100% clear on that 
 	_ITM_transaction *_ITM_CALL_CONVENTION _ITM_getTransaction(void) {
-		_ITM_transaction *ret = (_ITM_transaction *)wlpdstm::CurrentTransaction::Get();
+		_ITM_transaction *ret = (_ITM_transaction *)tlstm::CurrentTransaction::Get();
 
 		if(ret == NULL) {
 			_ITM_initializeProcess();
-			ret = (_ITM_transaction *)wlpdstm::CurrentTransaction::Get();
+			ret = (_ITM_transaction *)tlstm::CurrentTransaction::Get();
 		}
 
 		return ret;
 	}
 
 	_ITM_howExecuting _ITM_CALL_CONVENTION _ITM_inTransaction(_ITM_transaction *td) {
-		wlpdstm::TxMixinv *tx = (wlpdstm::TxMixinv *)td;
+		tlstm::TxMixinv *tx = (tlstm::TxMixinv *)td;
 		return tx->IsExecuting() ? inRetryableTransaction : outsideTransaction;
 	}
 	
 	int _ITM_CALL_CONVENTION _ITM_getThreadnum(void) {
-		wlpdstm::TxMixinv *tx = (wlpdstm::TxMixinv *)_ITM_getTransaction();
+		tlstm::TxMixinv *tx = (tlstm::TxMixinv *)_ITM_getTransaction();
 		return tx->GetThreadId();
 	}
 
@@ -60,7 +60,7 @@ extern "C"
 	}
 	
 	_ITM_transactionId _ITM_CALL_CONVENTION _ITM_getTransactionId(_ITM_transaction *td) {
-		wlpdstm::TxMixinv *tx = (wlpdstm::TxMixinv *)td;
+		tlstm::TxMixinv *tx = (tlstm::TxMixinv *)td;
 		return tx->GetTransactionId();
 	}
 
@@ -83,21 +83,21 @@ extern "C"
 
 #include "icc_memory.h"
 
-#if defined WLPDSTM_LINUXOS
+#if defined TLSTM_LINUXOS
 #include <malloc.h>
 	
 	inline size_t malloc_mem_size(void *ptr) {
 		return malloc_usable_size(ptr);
 	}
-#endif /* WLPDSTM_LINUXOS */
+#endif /* TLSTM_LINUXOS */
 	
-	void *wlpdstm_icc_malloc(size_t size) {
-		wlpdstm::TxMixinv *tx = (wlpdstm::TxMixinv *)_ITM_getTransaction();
+	void *tlstm_icc_malloc(size_t size) {
+		tlstm::TxMixinv *tx = (tlstm::TxMixinv *)_ITM_getTransaction();
 		return tx->TxMalloc(size);
 	}
 	
-	void wlpdstm_icc_free(void *ptr) {
-		wlpdstm::TxMixinv *tx = (wlpdstm::TxMixinv *)_ITM_getTransaction();
+	void tlstm_icc_free(void *ptr) {
+		tlstm::TxMixinv *tx = (tlstm::TxMixinv *)_ITM_getTransaction();
 		tx->TxFree(ptr, malloc_mem_size(ptr));
 	}
 	
@@ -141,7 +141,7 @@ extern "C"
 	 * }
 	 */
 	_ITM_EXPORT int _ITM_CALL_CONVENTION _ITM_initializeProcess(void) { /* Idempotent */
-		static wlpdstm::PaddedSpinTryLock lock;
+		static tlstm::PaddedSpinTryLock lock;
 		static volatile bool initialized = 0;
 
 		if(initialized) {
@@ -156,7 +156,7 @@ extern "C"
 		if(!initialized) {
 			printf("Initializing the process\n");
 			initialized = 1;
-			wlpdstm::CurrentTransaction::GlobalInit();
+			tlstm::CurrentTransaction::GlobalInit();
 		}
 
 		lock.release();
@@ -174,7 +174,7 @@ extern "C"
 
 	_ITM_EXPORT int _ITM_CALL_CONVENTION _ITM_initializeThread(void) {
 		printf("Initializing thread\n");
-		wlpdstm::CurrentTransaction::ThreadInit();
+		tlstm::CurrentTransaction::ThreadInit();
 		return 0;
 	}
 
@@ -199,7 +199,7 @@ extern "C"
 														uint32 __properties,
 														void *dummy_ret_addr,
 														const _ITM_srcLocation *__src) {
-		wlpdstm::Transaction *tx = (wlpdstm::Transaction *)td;
+		tlstm::Transaction *tx = (tlstm::Transaction *)td;
 #ifdef STACK_PROTECT_ICC_BOUND
 		tx->SetStackHigh(tx->start_buf.esp);
 #endif /* STACK_PROTECT_ICC_BOUND */
@@ -209,20 +209,20 @@ extern "C"
 	}
 
 	uint32 _ITM_CALL_CONVENTION _inner_jmpReturn(_ITM_transaction *td) {
-		wlpdstm::Transaction *tx = (wlpdstm::Transaction *)td;
-		wlpdstm::Transaction::TxStatus status = tx->GetTxStatus();
+		tlstm::Transaction *tx = (tlstm::Transaction *)td;
+		tlstm::Transaction::TxStatus status = tx->GetTxStatus();
 		uint32 ret;
 
-		if(status == wlpdstm::Transaction::TX_IDLE) {
+		if(status == tlstm::Transaction::TX_IDLE) {
 			_ITM_userError("Invoking _inner_jmpReturn for idle transaction\n", 1);
-		} else if(status == wlpdstm::Transaction::TX_RESTARTED) {
+		} else if(status == tlstm::Transaction::TX_RESTARTED) {
 			ret = a_runInstrumentedCode | a_restoreLiveVariables;
 			tx->TxStart();
-		} else if(status == wlpdstm::Transaction::TX_ABORTED) {
+		} else if(status == tlstm::Transaction::TX_ABORTED) {
 			ret = a_abortTransaction | a_restoreLiveVariables;
-		} else if(status == wlpdstm::Transaction::TX_COMMITTED) {
+		} else if(status == tlstm::Transaction::TX_COMMITTED) {
 			_ITM_userError("Invoking _inner_jmpReturn for committed transaction\n", 1);
-		} else if(status == wlpdstm::Transaction::TX_EXECUTING) {
+		} else if(status == tlstm::Transaction::TX_EXECUTING) {
 			_ITM_userError("Invoking _inner_jmpReturn while transaction is executing\n", 1);
 		} else {
 			_ITM_userError("Unknown status in _inner_jmpReturn\n", 1);
@@ -241,7 +241,7 @@ extern "C"
 	 */
 	_ITM_EXPORT void _ITM_CALL_CONVENTION _ITM_commitTransaction(_ITM_transaction *td,
 																 const _ITM_srcLocation *__src) {
-		wlpdstm::Transaction *tx = (wlpdstm::Transaction *)td;
+		tlstm::Transaction *tx = (tlstm::Transaction *)td;
 		tx->TxCommit();
 	}
 	
@@ -278,7 +278,7 @@ extern "C"
 	_ITM_EXPORT void _ITM_CALL_CONVENTION _ITM_abortTransaction(_ITM_transaction *td,
 																_ITM_abortReason __reason,
 																const _ITM_srcLocation *__src) {
-		wlpdstm::Transaction *tx = (wlpdstm::Transaction *)td;
+		tlstm::Transaction *tx = (tlstm::Transaction *)td;
 
 		if(__reason == userAbort) {
 			tx->TxAbort();
@@ -340,31 +340,31 @@ extern "C"
 
 	// 8 bits
 	_ITM_CALL_CONVENTION uint8 _ITM_RU1 (_ITM_transaction *td, const uint8 *addr) {
-		return wlpdstm::read8((wlpdstm::Transaction *)td, (uint8_t *)addr);
+		return tlstm::read8((tlstm::Transaction *)td, (uint8_t *)addr);
 	}
 
 	_ITM_CALL_CONVENTION uint8 _ITM_RaRU1(_ITM_transaction *td, const uint8 *addr) {
-		return wlpdstm::read8((wlpdstm::Transaction *)td, (uint8_t *)addr);
+		return tlstm::read8((tlstm::Transaction *)td, (uint8_t *)addr);
 	}
 
 	_ITM_CALL_CONVENTION uint8 _ITM_RaWU1(_ITM_transaction *td, const uint8 *addr) {
-		return wlpdstm::read8((wlpdstm::Transaction *)td, (uint8_t *)addr);
+		return tlstm::read8((tlstm::Transaction *)td, (uint8_t *)addr);
 	}
 
 	_ITM_CALL_CONVENTION uint8 _ITM_RfWU1(_ITM_transaction *td, const uint8 *addr) {
-		return wlpdstm::read8((wlpdstm::Transaction *)td, (uint8_t *)addr);
+		return tlstm::read8((tlstm::Transaction *)td, (uint8_t *)addr);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_WU1(_ITM_transaction *td, uint8 *addr,  uint8 val) {
-		wlpdstm::write8((wlpdstm::Transaction *)td, (uint8_t *)addr, (uint8_t)val);
+		tlstm::write8((tlstm::Transaction *)td, (uint8_t *)addr, (uint8_t)val);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_WaRU1(_ITM_transaction *td, uint8 *addr, uint8 val) {
-		wlpdstm::write8((wlpdstm::Transaction *)td, (uint8_t *)addr, (uint8_t)val);
+		tlstm::write8((tlstm::Transaction *)td, (uint8_t *)addr, (uint8_t)val);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_WaWU1(_ITM_transaction *td, uint8 *addr, uint8 val) {
-		wlpdstm::write8((wlpdstm::Transaction *)td, (uint8_t *)addr, (uint8_t)val);
+		tlstm::write8((tlstm::Transaction *)td, (uint8_t *)addr, (uint8_t)val);
 	}
 
 	// 16 bits
@@ -402,31 +402,31 @@ extern "C"
 
 	// 32 bits
 	_ITM_CALL_CONVENTION uint32 _ITM_RU4(_ITM_transaction *td, const uint32 *addr) {
-		return wlpdstm::read32((wlpdstm::Transaction *)td, (uint32_t *)addr);
+		return tlstm::read32((tlstm::Transaction *)td, (uint32_t *)addr);
 	}
 
 	_ITM_CALL_CONVENTION uint32 _ITM_RaRU4(_ITM_transaction *td, const uint32 *addr) {
-		return wlpdstm::read32((wlpdstm::Transaction *)td,  (uint32_t *)addr);
+		return tlstm::read32((tlstm::Transaction *)td,  (uint32_t *)addr);
 	}
 
 	_ITM_CALL_CONVENTION uint32 _ITM_RaWU4(_ITM_transaction *td, const uint32 *addr) {
-		return wlpdstm::read32((wlpdstm::Transaction *)td,  (uint32_t *)addr);
+		return tlstm::read32((tlstm::Transaction *)td,  (uint32_t *)addr);
 	}
 
 	_ITM_CALL_CONVENTION uint32 _ITM_RfWU4(_ITM_transaction *td, const uint32 *addr) {
-		return wlpdstm::read32((wlpdstm::Transaction *)td,  (uint32_t *)addr);
+		return tlstm::read32((tlstm::Transaction *)td,  (uint32_t *)addr);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_WU4(_ITM_transaction *td, uint32 *addr, uint32 val) {
-		wlpdstm::write32((wlpdstm::Transaction *)td, (uint32_t *)addr, (uint32_t)val);
+		tlstm::write32((tlstm::Transaction *)td, (uint32_t *)addr, (uint32_t)val);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_WaRU4(_ITM_transaction *td,  uint32 *addr, uint32 val) {
-		wlpdstm::write32((wlpdstm::Transaction *)td, (uint32_t *)addr, (uint32_t)val);
+		tlstm::write32((tlstm::Transaction *)td, (uint32_t *)addr, (uint32_t)val);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_WaWU4(_ITM_transaction *td,  uint32 *addr, uint32 val) {
-		wlpdstm::write32((wlpdstm::Transaction *)td, (uint32_t *)addr, (uint32_t)val);
+		tlstm::write32((tlstm::Transaction *)td, (uint32_t *)addr, (uint32_t)val);
 	}
 
 	// 64 bits
@@ -464,90 +464,90 @@ extern "C"
 
 	// float
 	_ITM_CALL_CONVENTION float _ITM_RF(_ITM_transaction *td, const float *addr) {
-		return read_float((wlpdstm::Transaction *)td, (float *)addr);
+		return read_float((tlstm::Transaction *)td, (float *)addr);
 	}
 
 	_ITM_CALL_CONVENTION float _ITM_RaRF(_ITM_transaction *td, const float *addr) {
-		return read_float((wlpdstm::Transaction *)td, (float *)addr);
+		return read_float((tlstm::Transaction *)td, (float *)addr);
 	}
 
 	_ITM_CALL_CONVENTION float _ITM_RaWF(_ITM_transaction *td, const float *addr) {
-		return read_float((wlpdstm::Transaction *)td, (float *)addr);
+		return read_float((tlstm::Transaction *)td, (float *)addr);
 	}
 
 	_ITM_CALL_CONVENTION float _ITM_RfWF(_ITM_transaction *td, const float  *addr) {
-		return read_float((wlpdstm::Transaction *)td, (float *)addr);
+		return read_float((tlstm::Transaction *)td, (float *)addr);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_WF(_ITM_transaction *td, float *addr, float val) {
-		write_float((wlpdstm::Transaction *)td, addr, val);
+		write_float((tlstm::Transaction *)td, addr, val);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_WaRF(_ITM_transaction *td, float *addr, float val) {
-		write_float((wlpdstm::Transaction *)td, addr, val);
+		write_float((tlstm::Transaction *)td, addr, val);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_WaWF(_ITM_transaction *td, float *addr, float val) {
-		write_float((wlpdstm::Transaction *)td, addr, val);
+		write_float((tlstm::Transaction *)td, addr, val);
 	}
 
 	// double
 	_ITM_CALL_CONVENTION double _ITM_RD(_ITM_transaction *td, const double *addr) {
-		return read_double((wlpdstm::Transaction *)td, (double *)addr);
+		return read_double((tlstm::Transaction *)td, (double *)addr);
 	}
 
 	_ITM_CALL_CONVENTION double _ITM_RaRD(_ITM_transaction *td, const double *addr) {
-		return read_double((wlpdstm::Transaction *)td, (double *)addr);
+		return read_double((tlstm::Transaction *)td, (double *)addr);
 	}
 
 	_ITM_CALL_CONVENTION double _ITM_RaWD(_ITM_transaction *td, const double *addr) {
-		return read_double((wlpdstm::Transaction *)td, (double *)addr);
+		return read_double((tlstm::Transaction *)td, (double *)addr);
 	}
 
 	_ITM_CALL_CONVENTION double _ITM_RfWD(_ITM_transaction *td, const double *addr) {
-		return read_double((wlpdstm::Transaction *)td, (double *)addr);
+		return read_double((tlstm::Transaction *)td, (double *)addr);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_WD(_ITM_transaction *td,  double *addr, double val) {
-		write_double((wlpdstm::Transaction *)td, addr, val);
+		write_double((tlstm::Transaction *)td, addr, val);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_WaRD(_ITM_transaction *td,  double *addr, double val) {
-		write_double((wlpdstm::Transaction *)td, addr, val);
+		write_double((tlstm::Transaction *)td, addr, val);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_WaWD(_ITM_transaction *td,  double *addr, double val) {
-		write_double((wlpdstm::Transaction *)td, addr, val);
+		write_double((tlstm::Transaction *)td, addr, val);
 	}
 
 
 	// m128
 	_ITM_CALL_CONVENTION __m128 _ITM_RM128(_ITM_transaction *td, const __m128 *addr) {
-		return read_m128((wlpdstm::Transaction *)td, (__m128 *)addr);
+		return read_m128((tlstm::Transaction *)td, (__m128 *)addr);
 	}
 
 	_ITM_CALL_CONVENTION __m128 _ITM_RaRM128(_ITM_transaction *td, const __m128 *addr) {
-		return read_m128((wlpdstm::Transaction *)td, (__m128 *)addr);
+		return read_m128((tlstm::Transaction *)td, (__m128 *)addr);
 	}
 
 	_ITM_CALL_CONVENTION __m128 _ITM_RaWM128(_ITM_transaction *td, const __m128 *addr) {
-		return read_m128((wlpdstm::Transaction *)td, (__m128 *)addr);
+		return read_m128((tlstm::Transaction *)td, (__m128 *)addr);
 	}
 
 	_ITM_CALL_CONVENTION __m128 _ITM_RfWM128(_ITM_transaction *td, const __m128 *addr) {
-		return read_m128((wlpdstm::Transaction *)td, (__m128 *)addr);
+		return read_m128((tlstm::Transaction *)td, (__m128 *)addr);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_WM128(_ITM_transaction *td, __m128 *addr, __m128 val) {
-		write_m128((wlpdstm::Transaction *)td, addr, val);
+		write_m128((tlstm::Transaction *)td, addr, val);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_WaRM128(_ITM_transaction *td, __m128 *addr, __m128 val) {
-		write_m128((wlpdstm::Transaction *)td, addr, val);
+		write_m128((tlstm::Transaction *)td, addr, val);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_WaWM128(_ITM_transaction *td, __m128 *addr, __m128 val) {
-		write_m128((wlpdstm::Transaction *)td, addr, val);
+		write_m128((tlstm::Transaction *)td, addr, val);
 	}
 
 	
@@ -610,63 +610,63 @@ extern "C"
 
 	// memcpy
 	_ITM_CALL_CONVENTION void _ITM_memcpyRnWt(_ITM_transaction *td, void *dest, const void *src, size_t size) {
-		wlpdstm::memcpy_tx((wlpdstm::Transaction *)td, dest, src, size);
+		tlstm::memcpy_tx((tlstm::Transaction *)td, dest, src, size);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_memcpyRnWtaR(_ITM_transaction *td, void *dest, const void *src, size_t size) {
-		wlpdstm::memcpy_tx((wlpdstm::Transaction *)td, dest, src, size);
+		tlstm::memcpy_tx((tlstm::Transaction *)td, dest, src, size);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_memcpyRnWtaW(_ITM_transaction *td, void *dest, const void *src, size_t size) {
-		wlpdstm::memcpy_tx((wlpdstm::Transaction *)td, dest, src, size);
+		tlstm::memcpy_tx((tlstm::Transaction *)td, dest, src, size);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_memcpyRtWn(_ITM_transaction *td, void *dest, const void *src, size_t size) {
-		wlpdstm::memcpy_tx((wlpdstm::Transaction *)td, dest, src, size);
+		tlstm::memcpy_tx((tlstm::Transaction *)td, dest, src, size);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_memcpyRtWt(_ITM_transaction *td, void *dest, const void *src, size_t size) {
-		wlpdstm::memcpy_tx((wlpdstm::Transaction *)td, dest, src, size);
+		tlstm::memcpy_tx((tlstm::Transaction *)td, dest, src, size);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_memcpyRtWtaR(_ITM_transaction *td, void *dest, const void *src, size_t size) {
-		wlpdstm::memcpy_tx((wlpdstm::Transaction *)td, dest, src, size);
+		tlstm::memcpy_tx((tlstm::Transaction *)td, dest, src, size);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_memcpyRtWtaW(_ITM_transaction *td, void *dest, const void *src, size_t size) {
-		wlpdstm::memcpy_tx((wlpdstm::Transaction *)td, dest, src, size);
+		tlstm::memcpy_tx((tlstm::Transaction *)td, dest, src, size);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_memcpyRtaRWn(_ITM_transaction *td, void *dest, const void *src, size_t size) {
-		wlpdstm::memcpy_tx((wlpdstm::Transaction *)td, dest, src, size);
+		tlstm::memcpy_tx((tlstm::Transaction *)td, dest, src, size);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_memcpyRtaRWt(_ITM_transaction *td, void *dest, const void *src, size_t size) {
-		wlpdstm::memcpy_tx((wlpdstm::Transaction *)td, dest, src, size);
+		tlstm::memcpy_tx((tlstm::Transaction *)td, dest, src, size);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_memcpyRtaRWtaR(_ITM_transaction *td, void *dest, const void *src, size_t size) {
-		wlpdstm::memcpy_tx((wlpdstm::Transaction *)td, dest, src, size);
+		tlstm::memcpy_tx((tlstm::Transaction *)td, dest, src, size);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_memcpyRtaRWtaW(_ITM_transaction *td, void *dest, const void *src, size_t size) {
-		wlpdstm::memcpy_tx((wlpdstm::Transaction *)td, dest, src, size);
+		tlstm::memcpy_tx((tlstm::Transaction *)td, dest, src, size);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_memcpyRtaWWn(_ITM_transaction *td, void *dest, const void *src, size_t size) {
-		wlpdstm::memcpy_tx((wlpdstm::Transaction *)td, dest, src, size);
+		tlstm::memcpy_tx((tlstm::Transaction *)td, dest, src, size);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_memcpyRtaWWt(_ITM_transaction *td, void *dest, const void *src, size_t size) {
-		wlpdstm::memcpy_tx((wlpdstm::Transaction *)td, dest, src, size);
+		tlstm::memcpy_tx((tlstm::Transaction *)td, dest, src, size);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_memcpyRtaWWtaR(_ITM_transaction *td, void *dest, const void *src, size_t size) {
-		wlpdstm::memcpy_tx((wlpdstm::Transaction *)td, dest, src, size);
+		tlstm::memcpy_tx((tlstm::Transaction *)td, dest, src, size);
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_memcpyRtaWWtaW(_ITM_transaction *td, void *dest, const void *src, size_t size) {
-		wlpdstm::memcpy_tx((wlpdstm::Transaction *)td, dest, src, size);
+		tlstm::memcpy_tx((tlstm::Transaction *)td, dest, src, size);
 	}
 
 	// memmove
@@ -745,19 +745,19 @@ extern "C"
 
 	// logging
 	_ITM_CALL_CONVENTION void _ITM_LU1(_ITM_transaction *td, const uint8 *addr) {
-		write8((wlpdstm::Transaction *)td,  (uint8_t *)addr, *((uint8_t *)addr));
+		write8((tlstm::Transaction *)td,  (uint8_t *)addr, *((uint8_t *)addr));
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_LU2(_ITM_transaction *td, const uint16 *addr) {
-		write16((wlpdstm::Transaction *)td,  (uint16_t *)addr, *((uint16_t *)addr));
+		write16((tlstm::Transaction *)td,  (uint16_t *)addr, *((uint16_t *)addr));
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_LU4(_ITM_transaction *td, const uint32 *addr) {
-		write32((wlpdstm::Transaction *)td,  (uint32_t *)addr, *((uint32_t *)addr));
+		write32((tlstm::Transaction *)td,  (uint32_t *)addr, *((uint32_t *)addr));
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_LU8(_ITM_transaction *td, const uint64 *addr) {
-		write64((wlpdstm::Transaction *)td,  (uint64_t *)addr, *((uint64_t *)addr));
+		write64((tlstm::Transaction *)td,  (uint64_t *)addr, *((uint64_t *)addr));
 	}
 
 	_ITM_CALL_CONVENTION void _ITM_LF(_ITM_transaction *td, const float *addr) {

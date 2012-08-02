@@ -2,12 +2,12 @@
  * @author Aleksandar Dragojevic aleksandar.dragojevic@epfl.ch
  */
 
-#ifndef WLPDSTM_ABORTED_EXC_H_
-#define WLPDSTM_ABORTED_EXC_H_
+#ifndef TLSTM_ABORTED_EXC_H_
+#define TLSTM_ABORTED_EXC_H_
 
 #include "constants.h"
 
-namespace wlpdstm {
+namespace tlstm {
 
 	struct RestartedException {
 		RestartedException(int lvl = TX_NO_LEVEL) : level(lvl) {  }
@@ -23,4 +23,4 @@ namespace wlpdstm {
 
 }
 
-#endif // WLPDSTM_ABORTED_EXC_H_
+#endif // TLSTM_ABORTED_EXC_H_

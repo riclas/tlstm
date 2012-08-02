@@ -7,12 +7,12 @@
  * @author Aleksandar Dragojevic aleksandar.dragojevic@epfl.ch
  */
 
-#ifndef WLPDSTM_TID_H_
-#define WLPDSTM_TID_H_
+#ifndef TLSTM_TID_H_
+#define TLSTM_TID_H_
 
 #include "common/atomic.h"
 
-namespace wlpdstm {
+namespace tlstm {
 
 	class Tid {
 		public:

@@ -2,8 +2,8 @@
  *  @author Aleksandar Dragojevic aleksandar.dragojevic@epfl.ch
  */
 
-#ifndef WLPDSTM_PERF_CNT_SOLARIS_H_
-#define WLPDSTM_PERF_CNT_SOLARIS_H_
+#ifndef TLSTM_PERF_CNT_SOLARIS_H_
+#define TLSTM_PERF_CNT_SOLARIS_H_
 
 #include "../common/timing.h"
 
@@ -15,7 +15,7 @@
 #define INSTRUCTION_COUNT_EVENT_NAME "Instr_cnt"
 #define CACHE_MISSES_EVENT_NAME "DC_miss"
 
-namespace wlpdstm {
+namespace tlstm {
 
 	class PerfCntSolaris {
 		public:
@@ -45,11 +45,11 @@ namespace wlpdstm {
 	typedef PerfCntSolaris PerfCnt;
 }
 
-inline void wlpdstm::PerfCntSolaris::GlobalInit() {
+inline void tlstm::PerfCntSolaris::GlobalInit() {
 	/* nothing */
 }
 
-inline void wlpdstm::PerfCntSolaris::ThreadInit() {
+inline void tlstm::PerfCntSolaris::ThreadInit() {
 	// initialize local state
 	cycles = 0;
 	ret_inst = 0;	
@@ -67,7 +67,7 @@ inline void wlpdstm::PerfCntSolaris::ThreadInit() {
 	cpc_bind_curlwp(cpc, set, 0);
 }
 
-inline void wlpdstm::PerfCntSolaris::TxStart() {
+inline void tlstm::PerfCntSolaris::TxStart() {
 	// read elapsed cycles
 	cycles = get_clock_count();
 
@@ -75,7 +75,7 @@ inline void wlpdstm::PerfCntSolaris::TxStart() {
 	cpc_set_sample(cpc, set, before);
 }
 
-inline void wlpdstm::PerfCntSolaris::TxEnd() {
+inline void tlstm::PerfCntSolaris::TxEnd() {
 	// read elapsed cycles
 	cycles = get_clock_count() - cycles;
 
@@ -86,17 +86,17 @@ inline void wlpdstm::PerfCntSolaris::TxEnd() {
 	cpc_buf_get(cpc, diff, cache_misses_ind, &cache_misses);
 }
 
-inline uint64_t wlpdstm::PerfCntSolaris::GetElapsedCycles() {
+inline uint64_t tlstm::PerfCntSolaris::GetElapsedCycles() {
 	return cycles;
 }
 
-inline uint64_t wlpdstm::PerfCntSolaris::GetRetiredInstructions() {
+inline uint64_t tlstm::PerfCntSolaris::GetRetiredInstructions() {
 	return ret_inst;
 }
 
-inline uint64_t wlpdstm::PerfCntSolaris::GetCacheMisses() {
+inline uint64_t tlstm::PerfCntSolaris::GetCacheMisses() {
 	return cache_misses;
 }
 
 
-#endif /* WLPDSTM_PERF_CNT_SOLARIS_H_ */
+#endif /* TLSTM_PERF_CNT_SOLARIS_H_ */

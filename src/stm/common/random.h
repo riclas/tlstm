@@ -2,12 +2,12 @@
  *  @author Aleksandar Dragojevic aleksandar.dragojevic@epfl.ch
  */
 
-#ifndef WLPDSTM_RANDOM_H_
-#define WLPDSTM_RANDOM_H_
+#ifndef TLSTM_RANDOM_H_
+#define TLSTM_RANDOM_H_
 
 #include <stdlib.h>
 
-namespace wlpdstm {
+namespace tlstm {
 
 	class Random {
 		public:
@@ -20,4 +20,4 @@ namespace wlpdstm {
 	};
 }
 
-#endif /* WLPDSTM_RANDOM_H_ */
+#endif /* TLSTM_RANDOM_H_ */

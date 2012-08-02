@@ -2,8 +2,8 @@
  * @author Aleksandar Dragojevic aleksandar.dragojevic@epfl.ch
  */
 
-#ifndef WLPDSTM_MEMORY_H_
-#define WLPDSTM_MEMORY_H_
+#ifndef TLSTM_MEMORY_H_
+#define TLSTM_MEMORY_H_
 
 #include <stdlib.h>
 
@@ -28,7 +28,7 @@
 // include allocators end //
 ////////////////////////////
 
-namespace wlpdstm {
+namespace tlstm {
 
 	////////////////////
 	// helper classes //
@@ -173,11 +173,11 @@ namespace wlpdstm {
 // memory manager implementation start //
 /////////////////////////////////////////
 
-inline void wlpdstm::MemoryManager::GlobalInit() {
+inline void tlstm::MemoryManager::GlobalInit() {
 	// empty
 }
 
-inline void wlpdstm::MemoryManager::ThreadInit(unsigned t) {
+inline void tlstm::MemoryManager::ThreadInit(unsigned t) {
 	// initialize buffer pointers
 	freed_in_tx = AllocatePtrBuffer();
 	freed_in_tx_old = freed_in_tx;
@@ -192,12 +192,12 @@ inline void wlpdstm::MemoryManager::ThreadInit(unsigned t) {
 	last_minimum_ts = MINIMUM_TS;
 }
 
-inline void wlpdstm::MemoryManager::TxStart() {
+inline void tlstm::MemoryManager::TxStart() {
 	// empty
 }
 
 template <class TX>
-inline void wlpdstm::MemoryManager::TxCommit(Word commit_ts) {
+inline void tlstm::MemoryManager::TxCommit(Word commit_ts) {
 	// forget allocations in this tx
 	if(alloced_in_tx_old != alloced_in_tx) {
 		PutReusable(alloced_in_tx_old->next, alloced_in_tx);
@@ -227,7 +227,7 @@ inline void wlpdstm::MemoryManager::TxCommit(Word commit_ts) {
 	}
 }
 
-inline void wlpdstm::MemoryManager::TxAbort() {
+inline void tlstm::MemoryManager::TxAbort() {
 	// forget deallocations in this tx
 	freed_in_tx_old->Rollback();
 
@@ -255,13 +255,13 @@ inline void wlpdstm::MemoryManager::TxAbort() {
 	alloced_in_tx->next_ptr = 0;
 }
 
-inline wlpdstm::PtrBuffer *wlpdstm::MemoryManager::AllocatePtrBuffer() {
+inline tlstm::PtrBuffer *tlstm::MemoryManager::AllocatePtrBuffer() {
 	PtrBuffer *ret = (PtrBuffer *)Malloc(sizeof(PtrBuffer));
 	ret->Clear();
 	return ret;
 }
 
-inline wlpdstm::PtrBuffer *wlpdstm::MemoryManager::GetCleanPtrBuffer() {
+inline tlstm::PtrBuffer *tlstm::MemoryManager::GetCleanPtrBuffer() {
 	if(reusable != NULL) {
 		PtrBuffer *ret = reusable;
 		PtrBuffer *next = reusable->next;
@@ -279,7 +279,7 @@ inline wlpdstm::PtrBuffer *wlpdstm::MemoryManager::GetCleanPtrBuffer() {
 	return AllocatePtrBuffer();
 }
 
-inline void wlpdstm::MemoryManager::PutReusable(PtrBuffer *first, PtrBuffer *last) {
+inline void tlstm::MemoryManager::PutReusable(PtrBuffer *first, PtrBuffer *last) {
 	last->next = reusable;
 
 	if(reusable != NULL) {
@@ -290,7 +290,7 @@ inline void wlpdstm::MemoryManager::PutReusable(PtrBuffer *first, PtrBuffer *las
 	reusable = first;
 }
 
-inline void wlpdstm::MemoryManager::PutFreedLogically(PtrBuffer *first, PtrBuffer *last) {
+inline void tlstm::MemoryManager::PutFreedLogically(PtrBuffer *first, PtrBuffer *last) {
 	last->next = freed_logically;
 
 	if(freed_logically != NULL) {
@@ -301,7 +301,7 @@ inline void wlpdstm::MemoryManager::PutFreedLogically(PtrBuffer *first, PtrBuffe
 	freed_logically = first;
 }
 
-inline void *wlpdstm::MemoryManager::Malloc(size_t size) {
+inline void *tlstm::MemoryManager::Malloc(size_t size) {
 #ifdef MM_TBB_MALLOC
 	void *ret = scalable_malloc(size);
 #elif defined MM_HOARD
@@ -315,7 +315,7 @@ inline void *wlpdstm::MemoryManager::Malloc(size_t size) {
 	return ret;
 }
 
-inline void wlpdstm::MemoryManager::Free(void *ptr) {
+inline void tlstm::MemoryManager::Free(void *ptr) {
 #ifdef MM_TBB_MALLOC
 	scalable_free(ptr);
 #elif defined MM_HOARD
@@ -327,7 +327,7 @@ inline void wlpdstm::MemoryManager::Free(void *ptr) {
 #endif
 }
 
-inline void *wlpdstm::MemoryManager::TxMalloc(size_t size) {
+inline void *tlstm::MemoryManager::TxMalloc(size_t size) {
 	// first allocate memory
 	void *ret = Malloc(size);
 
@@ -345,7 +345,7 @@ inline void *wlpdstm::MemoryManager::TxMalloc(size_t size) {
 	return ret;
 }
 
-inline void wlpdstm::MemoryManager::TxFree(void *ptr) {
+inline void tlstm::MemoryManager::TxFree(void *ptr) {
 	// remember deallocation
 	freed_in_tx->ptrs[freed_in_tx->next_ptr++] = ptr;
 
@@ -359,7 +359,7 @@ inline void wlpdstm::MemoryManager::TxFree(void *ptr) {
 }
 
 template <class TX>
-inline void wlpdstm::MemoryManager::FreeDominated() {
+inline void tlstm::MemoryManager::FreeDominated() {
 #ifdef DETAILED_STATS
 	IncrementStatistics(Statistics::FREE_DOMINATED);
 #endif /* DETAILED_STATS */
@@ -413,11 +413,11 @@ inline void wlpdstm::MemoryManager::FreeDominated() {
 	}
 }
 
-inline void wlpdstm::MemoryManager::FreeMemoryPtr(void *ptr) {
+inline void tlstm::MemoryManager::FreeMemoryPtr(void *ptr) {
 	Free(ptr);
 }
 
-inline void wlpdstm::MemoryManager::FreePtrs(PtrBuffer *buf) {
+inline void tlstm::MemoryManager::FreePtrs(PtrBuffer *buf) {
 	unsigned end = buf->next_ptr;
 
 	for(unsigned i = 0;i < end;i++) {

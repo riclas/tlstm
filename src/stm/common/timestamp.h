@@ -1,11 +1,11 @@
-#ifndef WLPDSTM_TIMESTAMP_H_
-#define WLPDSTM_TIMESTAMP_H_
+#ifndef TLSTM_TIMESTAMP_H_
+#define TLSTM_TIMESTAMP_H_
 
 #include "../constants.h"
 #include "atomic.h"
 #include "word.h"
 
-namespace wlpdstm {
+namespace tlstm {
 
 	class GlobalTimestamp {
 		public:
@@ -48,7 +48,7 @@ namespace wlpdstm {
 	};
 }
 
-inline Word wlpdstm::GlobalTimestamp::GenerateTsGV4() {
+inline Word tlstm::GlobalTimestamp::GenerateTsGV4() {
 	Word old_val = atomic_load_no_barrier(&ts);
 	Word replaced_val = compare_and_swap_release(&ts, old_val, old_val + 1);
 
@@ -59,4 +59,4 @@ inline Word wlpdstm::GlobalTimestamp::GenerateTsGV4() {
 	return old_val + 1;
 }
 
-#endif // WLPDSTM_TIMESTAMP_H_
+#endif // TLSTM_TIMESTAMP_H_
