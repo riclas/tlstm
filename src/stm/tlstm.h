@@ -25,8 +25,11 @@ extern "C" {
 
 	// initialization
 	void tlstm_global_init(int nb_tasks);
-
 	void tlstm_thread_init(int ptid, int taskid);
+
+	// cleanup
+	void tlstm_thread_shutdown();
+	void tlstm_global_shutdown();
 
 	// start/end tx
 	void tlstm_start_tx(int commit, int serial, int start_serial, int commit_serial) __attribute__ ((noinline));

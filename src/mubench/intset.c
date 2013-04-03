@@ -19,15 +19,18 @@
  * GNU General Public License for more details.
  */
 
+#define _GNU_SOURCE
+
 #include <assert.h>
 #include <getopt.h>
 #include <limits.h>
+#include <sched.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <unistd.h>
 #include <sys/time.h>
 #include <time.h>
-
 
 #ifdef MUBENCH_TLSTM
 #include <atomic_ops.h>
@@ -269,7 +272,7 @@ int set_contains(intset_t *set, intptr_t val, int commit, int serial, int start,
 	int res = 0, i;
 
 	START_ID(2, commit, serial, start, last);
-	for(i=0; i<16; i++){
+	for(i=0; i<1; i++){
 		res = TMrbtree_contains(tx, set, val);
 	}
 	COMMIT;
@@ -663,7 +666,7 @@ typedef struct task_data {
 #define CONTAINS 2
 //#include "threadpool.c"
 
-#define NUM_OPS (1 << 20)
+#define NUM_OPS (1 << 18)
 //#define TEST_MATRIX_SIZE 4
 /*
 void task_threadpool(void *data){
@@ -924,6 +927,26 @@ void *program_thread(void *data)
   return NULL;
 }
 */
+
+void cpu_load(){
+	  int num_pcs = sysconf(_SC_NPROCESSORS_ONLN);
+	  printf("Number of processors: %d\n", num_pcs);
+
+	  long double a[4],b[4],loadavg;
+	  FILE *fp;
+
+	  fp = fopen("/proc/stat","r");
+	  fscanf(fp,"%*s %Lf %Lf %Lf %Lf",&a[0],&a[1],&a[2],&a[3]);
+	  fclose(fp);
+	  sleep(1);
+	  fp = fopen("/proc/stat","r");
+	  fscanf(fp,"%*s %Lf %Lf %Lf %Lf",&b[0],&b[1],&b[2],&b[3]);
+	  fclose(fp);
+
+	  loadavg = ((b[0]+b[1]+b[2]) - (a[0]+a[1]+a[2])) / ((b[0]+b[1]+b[2]+b[3]) - (a[0]+a[1]+a[2]+a[3])) * 100;
+	  printf("The current CPU utilization is: %.1Lf%\n",loadavg);
+}
+
 int main(int argc, char **argv)
 {
   struct option long_options[] = {
@@ -1151,10 +1174,17 @@ int main(int argc, char **argv)
 	  }
   }
 
+  //print current cpu load
+  cpu_load();
+
   /* Access set from all threads */
   barrier_init(&barrier, nb_threads * nb_tasks + 1);
   pthread_attr_init(&attr);
   pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
+
+  cpu_set_t cpuset;
+  int cpu_id = 0;
+
   for (i = 0; i < nb_threads; i++) {
 	  for(j = 0; j < nb_tasks; j++){
 		int index = i*nb_tasks + j;
@@ -1177,6 +1207,21 @@ int main(int argc, char **argv)
 		data[index].ops = ops[i];
 		data[index].height = height;
 		data[index].width = width;
+
+		//bad scheduling
+		//cpu_id = index/4 + 16*(index%4);
+		//very good scheduling
+		//cpu_id = j + i*16;
+		//good scheduling
+		//cpu_id = index/2*16 + j%2;
+		//perfect scheduling
+		cpu_id = index;
+
+		printf("scheduling thread %d to cpu %d\n", index, cpu_id);
+		CPU_ZERO(&cpuset);
+		CPU_SET(cpu_id, &cpuset);
+		pthread_attr_setaffinity_np(&attr, sizeof(cpuset), &cpuset);
+
 
 		if (pthread_create(&threads[index], &attr, task_threads, (void *)(&data[index])) != 0) {
 		  fprintf(stderr, "Error creating thread\n");

@@ -121,6 +121,14 @@ void *tlstm_tx_malloc_desc(tx_desc *tx, size_t size) {
 	return ((tlstm::Transaction *)tx)->TxMalloc(size);
 }
 
+void tlstm_thread_shutdown() {
+	tlstm::CurrentTransaction::ThreadShutdown();
+}
+
+void tlstm_global_shutdown() {
+	tlstm::Transaction::GlobalShutdown();
+}
+
 void tlstm_print_stats() {
 	tlstm::Transaction::PrintStatistics();
 }

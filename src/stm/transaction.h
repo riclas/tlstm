@@ -75,6 +75,10 @@ namespace tlstm {
 			static void TxFree(void *address, size_t size) {
 				return Tls<Transaction, true, true>::Get()->TxFree(address, size);
 			}
+
+			static void ThreadShutdown() {
+				return Tls<Transaction, true, true>::Get()->ThreadShutdown();
+			}
 	};
 }
 

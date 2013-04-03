@@ -254,6 +254,10 @@ namespace tlstm {
 
 		void ThreadInit(int ptid, int taskid);
 
+		static void GlobalShutdown();
+
+		void ThreadShutdown();
+
 		unsigned IncSerial(unsigned ptid);
 
 		/**
@@ -344,15 +348,17 @@ namespace tlstm {
 
 		bool Validate();
 
+		Word ValidateTx();
+
 		bool ValidateTLS();
 
 		Word ValidateCommit();
 
-		Word ValidateThread();
-
 		void ReleaseReadLocks();
 
 		bool Extend();
+
+		bool ExtendTx();
 
 		bool ExtendTLS();
 
@@ -826,6 +832,14 @@ inline void tlstm::TxMixinv::ThreadInit(int ptid, int taskid) {
 // initialization end //
 ////////////////////////
 
+inline void tlstm::TxMixinv::GlobalShutdown() {
+	PrintStatistics();
+}
+
+inline void tlstm::TxMixinv::ThreadShutdown() {
+	// nothing
+}
+
 inline tlstm::TxMixinv::TxStatus tlstm::TxMixinv::GetTxStatus() const {
 	return (TxStatus)tx_status;
 }
@@ -972,8 +986,11 @@ inline void tlstm::TxMixinv::TxCommit() {
 		#endif // ADAPTIVE_LOCKING
 				TxRestart(RESTART_LOCK_TASK);
 			}
-		} while(prog_thread[prog_thread_id].last_completed_task != serial-1);
+		}
+		//while(atomic_load_acquire(&prog_thread[prog_thread_id].last_completed_task) != serial-1);
+		while(prog_thread[prog_thread_id].last_completed_task != serial-1);
 	} else {
+		//while(atomic_load_acquire(&prog_thread[prog_thread_id].last_completed_task) != serial-1);
 		while(prog_thread[prog_thread_id].last_completed_task != serial-1);
 	}
 
@@ -1058,20 +1075,16 @@ inline tlstm::TxMixinv::RestartCause tlstm::TxMixinv::TxTryCommit(bool read_only
 
 		//END of an intermediate task
 	} else {
-		Word abort_serial;
+		Word abort_serial = start_serial;
 
 		for(Word i = start_serial; i < serial; i++){
 			if(prog_thread[prog_thread_id].owners[i % specdepth]->valid_ts != valid_ts){
-				if((abort_serial = ValidateThread()) > 0) {
-					//abort_serial = start_serial;
-
+				if(!ExtendTx()) {
 					RollbackTransaction(abort_serial);
 
 					stats.IncrementStatistics(Statistics::ABORT_COMMIT_VALIDATE);
 					IncrementReadAbortStats();
-		#ifdef ADAPTIVE_LOCKING
-					++aborts;
-		#endif /* ADAPTIVE_LOCKING */
+
 					return RESTART_VALIDATION;
 				}
 				break;
@@ -1087,6 +1100,7 @@ inline tlstm::TxMixinv::RestartCause tlstm::TxMixinv::TxTryCommit(bool read_only
 					*(entry.read_lock) = READ_LOCK_SET;
 				}
 			}
+
 			// now get a commit timestamp
 			ts = IncrementCommitTs();
 
@@ -1114,22 +1128,24 @@ inline tlstm::TxMixinv::RestartCause tlstm::TxMixinv::TxTryCommit(bool read_only
 			// overlap with the write set of another and this would pass unnoticed
 
 	#ifdef COMMIT_TS_INC
-			if(/*ts != valid_ts + 1 && */(abort_serial = ValidateCommit()) > 0) {
-	#elif defined COMMIT_TS_GV4
-			if((abort_serial = ValidateCommit()) > 0) {
-	#endif /* commit_ts */
-				ReleaseReadLocks();
-				//abort_serial = start_serial;
+			//if(ts != valid_ts + 1){
+				if((abort_serial = ValidateCommit()) > 0) {
+		#elif defined COMMIT_TS_GV4
+				if((abort_serial = ValidateCommit()) > 0) {
+		#endif /* commit_ts */
+					ReleaseReadLocks();
+					//abort_serial = start_serial;
 
-				RollbackTransaction(abort_serial);
+					RollbackTransaction(abort_serial);
 
-				stats.IncrementStatistics(Statistics::ABORT_COMMIT_VALIDATE);
-				IncrementReadAbortStats();
-	#ifdef ADAPTIVE_LOCKING
-				++aborts;
-	#endif /* ADAPTIVE_LOCKING */
-				return RESTART_VALIDATION;
-			}
+					stats.IncrementStatistics(Statistics::ABORT_COMMIT_VALIDATE);
+					IncrementReadAbortStats();
+		#ifdef ADAPTIVE_LOCKING
+					++aborts;
+		#endif /* ADAPTIVE_LOCKING */
+					return RESTART_VALIDATION;
+				}
+			//}
 
 			VersionLock commitVersion = get_version_lock(ts);
 
@@ -1161,8 +1177,6 @@ inline tlstm::TxMixinv::RestartCause tlstm::TxMixinv::TxTryCommit(bool read_only
 		//TLSTM
 		//reset CM state only once per tx
 		CmStartTx();
-
-		prog_thread[prog_thread_id].progress = 0;
 
 		//tell the next task it can start commiting
 		prog_thread[prog_thread_id].last_completed_task = serial;
@@ -1928,6 +1942,7 @@ inline bool tlstm::TxMixinv::address_is_invalid(Word *address){
 	//	return true;
 	return false;
 }
+
 // TODO add here a check for a signal from another thread
 inline bool tlstm::TxMixinv::ShouldExtend(VersionLock version) {
 	if(get_value(version) > valid_ts) {
@@ -1958,6 +1973,22 @@ inline bool tlstm::TxMixinv::Validate() {
 	}
 
 	return true;
+}
+
+inline Word tlstm::TxMixinv::ValidateTx() {
+	ReadLog::iterator iter;
+
+	for(Word i = start_serial; i <= serial; i++){
+		for(iter = prog_thread[prog_thread_id].owners[i % specdepth]->read_log.begin();iter.hasNext();iter.next()) {
+			ReadLogEntry &entry = *iter;
+			VersionLock currentVersion = (VersionLock)atomic_load_no_barrier(entry.read_lock);
+
+			if(currentVersion != entry.version) {
+				return i;
+			}
+		}
+	}
+	return 0;
 }
 
 inline bool tlstm::TxMixinv::ValidateTLS() {
@@ -2021,22 +2052,6 @@ inline Word tlstm::TxMixinv::ValidateCommit() {
 	return 0;
 }
 
-inline Word tlstm::TxMixinv::ValidateThread() {
-	ReadLog::iterator iter;
-
-	for(Word i = start_serial; i <= serial; i++){
-		for(iter = prog_thread[prog_thread_id].owners[i % specdepth]->read_log.begin();iter.hasNext();iter.next()) {
-			ReadLogEntry &entry = *iter;
-			VersionLock currentVersion = (VersionLock)atomic_load_no_barrier(entry.read_lock);
-
-			if(currentVersion != entry.version) {
-				return i;
-			}
-		}
-	}
-	return 0;
-}
-
 inline bool tlstm::TxMixinv::Extend() {
 	unsigned ts = commit_ts.readCurrentTsAcquire();
 
@@ -2060,6 +2075,19 @@ inline bool tlstm::TxMixinv::Extend() {
 
 	return false;
 }
+
+inline bool tlstm::TxMixinv::ExtendTx() {
+	unsigned ts = commit_ts.readCurrentTsAcquire();
+
+	if(ValidateTx() == 0) {
+		valid_ts = ts;
+
+		return true;
+	}
+
+	return false;
+}
+
 inline bool tlstm::TxMixinv::ExtendTLS() {
 	Word lw = prog_thread[prog_thread_id].last_completed_writer;
 
@@ -2270,6 +2298,7 @@ inline void tlstm::TxMixinv::CmStartTx() {
 	prog_thread[prog_thread_id].cm_phase = CM_PHASE_INITIAL;
 	prog_thread[prog_thread_id].greedy_ts = MINIMUM_TS;
 	prog_thread[prog_thread_id].locations_accessed = 0;
+	prog_thread[prog_thread_id].progress = 0;
 #endif /* SIMPLE_GREEDY */
 }
 
