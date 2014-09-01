@@ -24,7 +24,7 @@ extern "C" {
 	typedef void *tx_desc;
 
 	// initialization
-	void tlstm_global_init(int nb_tasks);
+	void tlstm_global_init(int nb_tasks, int nb_threads);
 	void tlstm_thread_init(int ptid, int taskid);
 
 	// cleanup
@@ -32,7 +32,7 @@ extern "C" {
 	void tlstm_global_shutdown();
 
 	// start/end tx
-	void tlstm_start_tx(int commit, int serial, int start_serial, int commit_serial) __attribute__ ((noinline));
+	void tlstm_start_tx(int serial, int start_serial, int commit_serial) __attribute__ ((noinline));
 	void tlstm_start_tx_id(int lexical_tx_id) __attribute__ ((noinline));
 
 	LONG_JMP_BUF *tlstm_get_long_jmp_buf();
@@ -42,6 +42,8 @@ extern "C" {
 	void tlstm_abort_tx();
 
 	void tlstm_restart_tx();
+
+	void tlstm_inconsistent_read_restart_tx();
 
 	// read/write word
 	Word tlstm_read_word(Word *address);
@@ -65,7 +67,7 @@ extern "C" {
 
 	// start/end tx
 	void tlstm_start_tx_desc(tx_desc *tx);
-	void tlstm_start_tx_id_desc(tx_desc *tx, int lexical_tx_id, int commit, int serial, int start, int last);
+	void tlstm_start_tx_id_desc(tx_desc *tx, int lexical_tx_id, int serial, int start, int last);
 
 	LONG_JMP_BUF *tlstm_get_long_jmp_buf_desc(tx_desc *tx);
 
@@ -74,6 +76,8 @@ extern "C" {
 	void tlstm_abort_tx_desc(tx_desc *tx);
 
 	void tlstm_restart_tx_desc(tx_desc *tx);
+
+	void tlstm_inconsistent_read_restart_tx_desc(tx_desc *tx);
 
 	// read/write word
 	Word tlstm_read_word_desc(tx_desc *tx, Word *address);

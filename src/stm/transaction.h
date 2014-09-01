@@ -34,8 +34,8 @@ namespace tlstm {
 	// A shortcut used for accessing transaction in progress.
 	class CurrentTransaction : public Tls<Transaction, true, true> {
 		public:
-			static void TxStart(int lexical_tx_id = NO_LEXICAL_TX, bool commit=true, int new_serial=0, int start_s=0, int commit_s=0) {
-				Tls<Transaction, true, true>::Get()->TxStart(lexical_tx_id, commit, new_serial, start_s, commit_s);
+			static void TxStart(int lexical_tx_id = NO_LEXICAL_TX, int new_serial=0, int start_s=0, int commit_s=0) {
+				Tls<Transaction, true, true>::Get()->TxStart(lexical_tx_id, new_serial, start_s, commit_s);
 			}
 
 			static LONG_JMP_BUF *GetLongJmpBuf() {
@@ -44,6 +44,10 @@ namespace tlstm {
 
 			static void TxCommit() {
 				Tls<Transaction, true, true>::Get()->TxCommit();
+			}
+
+			static void InconsistentReadRestart() {
+				Tls<Transaction, true, true>::Get()->InconsistentReadRestart();
 			}
 
 			static void TxRestart() {

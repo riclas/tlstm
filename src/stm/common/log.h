@@ -18,367 +18,405 @@
 
 namespace tlstm {
 
-	template<typename T, int CHUNK_LENGTH = 2048, bool INIT = false>
-	class Log : public WlpdstmAlloced {
-		private:
-			struct LogChunk : public WlpdstmAlloced {
-				LogChunk() : next(NULL), prev(NULL) { }
+template<typename T, int CHUNK_LENGTH = 2048, bool INIT = false>
+class Log : public WlpdstmAlloced {
+private:
+	struct LogChunk : public WlpdstmAlloced {
+		LogChunk() : next(NULL), prev(NULL) { }
 
-				T elements[CHUNK_LENGTH];
-				LogChunk *next;
-				LogChunk *prev;
-			};
-
-		public:
-			class iterator : public WlpdstmAlloced {
-				public:
-					iterator(LogChunk *c = NULL, unsigned el = 0,
-							LogChunk *lc = NULL, unsigned lel = 0)
-						: chunk(c), element(el), lastChunk(lc),
-						lastElement(lel) { }
-
-				public:
-					bool operator==(const iterator& rhs);
-					bool operator!=(const iterator& rhs);
-					void next();
-					bool hasNext();
-					iterator& operator++();
-					iterator operator++(int);
-					T& operator*() const;
-
-				private:
-					LogChunk *chunk;
-					unsigned element;
-					LogChunk *lastChunk;
-					unsigned lastElement;
-			};
-
-		public:
-			Log() : head(new LogChunk()), lastChunk(head),
-				nextElement(0) { }
-
-			iterator begin() const;
-			iterator end() const;
-
-			bool empty() const;
-			void insert(const T& element);
-			T remove();
-			void delete_last();
-			T *get_next();
-			void clear();
-
-			bool contains(const T *el);
-
-            unsigned get_size() const;
-
-		private:
-			LogChunk *head;
-			// logically last chunk
-			LogChunk *lastChunk;
-			unsigned nextElement;
+		T elements[CHUNK_LENGTH];
+		LogChunk *next;
+		LogChunk *prev;
 	};
+
+	public:
+	class iterator : public WlpdstmAlloced {
+	public:
+		iterator(LogChunk *c = NULL, unsigned el = 0,
+				LogChunk *lc = NULL, unsigned lel = 0)
+	: chunk(c), element(el), lastChunk(lc),
+	  lastElement(lel) { }
+
+	public:
+		bool operator==(const iterator& rhs);
+		bool operator!=(const iterator& rhs);
+		void next();
+		bool hasNext();
+		iterator& operator++();
+		iterator operator++(int);
+		T& operator*() const;
+
+	private:
+		LogChunk *chunk;
+		unsigned element;
+		LogChunk *lastChunk;
+		unsigned lastElement;
+	};
+
+	public:
+	Log() : head(new LogChunk()), lastChunk(head),
+	nextElement(0) { }
+
+	iterator begin() const;
+	iterator end() const;
+
+	bool empty() const;
+	void insert(const T& element);
+	T remove();
+	void delete_last();
+	//T *get_last();
+	T *get_next();
+	T *get(int index);
+	void clear();
+
+	bool contains(const T *el);
+
+	unsigned get_size() const;
+
+	private:
+	LogChunk *head;
+	// logically last chunk
+	LogChunk *lastChunk;
+	unsigned nextElement;
+};
 }
 
 namespace tlstm {
-	
-	template<typename T, int CHUNK_LENGTH, bool INIT>
-	inline typename Log<T, CHUNK_LENGTH, INIT>::iterator Log<T, CHUNK_LENGTH, INIT>::begin() const {
-		return iterator(head, 0, lastChunk, nextElement);
-	}
 
-	template<typename T, int CHUNK_LENGTH, bool INIT>
-	inline typename Log<T, CHUNK_LENGTH, INIT>::iterator Log<T, CHUNK_LENGTH, INIT>::end() const {
-		return iterator(lastChunk, nextElement, lastChunk, nextElement);
-	}
+template<typename T, int CHUNK_LENGTH, bool INIT>
+inline typename Log<T, CHUNK_LENGTH, INIT>::iterator Log<T, CHUNK_LENGTH, INIT>::begin() const {
+	return iterator(head, 0, lastChunk, nextElement);
+}
 
-	template<typename T, int CHUNK_LENGTH, bool INIT>
-	inline bool Log<T, CHUNK_LENGTH, INIT>::empty() const {
-		return (nextElement == 0 && lastChunk == head);
-	}
+template<typename T, int CHUNK_LENGTH, bool INIT>
+inline typename Log<T, CHUNK_LENGTH, INIT>::iterator Log<T, CHUNK_LENGTH, INIT>::end() const {
+	return iterator(lastChunk, nextElement, lastChunk, nextElement);
+}
 
-	template<typename T, int CHUNK_LENGTH, bool INIT>
-	inline void Log<T, CHUNK_LENGTH, INIT>::insert(const T& el) {
-		lastChunk->elements[nextElement++] = el;
+template<typename T, int CHUNK_LENGTH, bool INIT>
+inline bool Log<T, CHUNK_LENGTH, INIT>::empty() const {
+	return (nextElement == 0 && lastChunk == head);
+}
 
-		if(nextElement == CHUNK_LENGTH) {
-			LogChunk *chunk = lastChunk->next;
+template<typename T, int CHUNK_LENGTH, bool INIT>
+inline void Log<T, CHUNK_LENGTH, INIT>::insert(const T& el) {
+	lastChunk->elements[nextElement++] = el;
 
-			if(chunk == NULL) {
-				chunk = new LogChunk();
-				lastChunk->next = chunk;
-				chunk->prev = lastChunk;
-			}
+	if(nextElement == CHUNK_LENGTH) {
+		LogChunk *chunk = lastChunk->next;
 
-			lastChunk = chunk;
-			nextElement = 0;
-		}
-	}
-
-	template<typename T, int CHUNK_LENGTH, bool INIT>
-	inline T *Log<T, CHUNK_LENGTH, INIT>::get_next() {
-		T *ret = lastChunk->elements + nextElement++;
-		//lastChunk->elements[nextElement++] = el;
-
-		if(nextElement == CHUNK_LENGTH) {
-			LogChunk *chunk = lastChunk->next;
-
-			if(chunk == NULL) {
-				chunk = new LogChunk();
-				lastChunk->next = chunk;
-				chunk->prev = lastChunk;
-			}
-
-			lastChunk = chunk;
-			nextElement = 0;
+		if(chunk == NULL) {
+			chunk = new LogChunk();
+			lastChunk->next = chunk;
+			chunk->prev = lastChunk;
 		}
 
-		return ret;
+		lastChunk = chunk;
+		nextElement = 0;
 	}
+}
 
-	template<typename T, int CHUNK_LENGTH, bool INIT>
-	inline bool Log<T, CHUNK_LENGTH, INIT>::contains(const T *el) {
-		LogChunk *curr = head;
+template<typename T, int CHUNK_LENGTH, bool INIT>
+inline T *Log<T, CHUNK_LENGTH, INIT>::get_next() {
+	T *ret = lastChunk->elements + nextElement++;
+	//lastChunk->elements[nextElement++] = el;
 
-		while(curr != NULL) {
-			const T *chunk_start = curr->elements;
-			const T *chunk_end = chunk_start + CHUNK_LENGTH;
+	if(nextElement == CHUNK_LENGTH) {
+		LogChunk *chunk = lastChunk->next;
 
-			if(el >= chunk_start && el < chunk_end) {			
-				return true;
-			}
-
-			if(curr == lastChunk) {
-				return false;
-			}
-
-			curr = curr->next;
+		if(chunk == NULL) {
+			chunk = new LogChunk();
+			lastChunk->next = chunk;
+			chunk->prev = lastChunk;
 		}
 
-		return false;
-	}
-
-	template<typename T, int CHUNK_LENGTH, bool INIT>
-	inline T Log<T, CHUNK_LENGTH, INIT>::remove() {
-		if(nextElement == 0) {
-			nextElement = CHUNK_LENGTH - 1;
-			lastChunk = lastChunk->prev;
-			return lastChunk->elements[CHUNK_LENGTH - 1];
-		}
-
-		return lastChunk->elements[--nextElement];
-	}
-
-	template<typename T, int CHUNK_LENGTH, bool INIT>
-	inline void Log<T, CHUNK_LENGTH, INIT>::delete_last() {
-		if(nextElement == 0) {
-			nextElement = CHUNK_LENGTH - 1;
-			lastChunk = lastChunk->prev;
-		} else {
-			--nextElement;
-		}
-	}
-
-	template<typename T, int CHUNK_LENGTH, bool INIT>
-	inline void Log<T, CHUNK_LENGTH, INIT>::clear() {
-		lastChunk = head;
+		lastChunk = chunk;
 		nextElement = 0;
 	}
 
-	template<typename T, int CHUNK_LENGTH, bool INIT>
-	inline bool Log<T, CHUNK_LENGTH, INIT>::iterator::operator==(
-			const Log<T, CHUNK_LENGTH, INIT>::iterator& rhs) {
-		return chunk == rhs.chunk && element == rhs.element;
-	}
+	return ret;
+}
 
-	template<typename T, int CHUNK_LENGTH, bool INIT>
-	inline bool Log<T, CHUNK_LENGTH, INIT>::iterator::operator!=(
-			const Log<T, CHUNK_LENGTH, INIT>::iterator& rhs) {
-		return !(chunk == rhs.chunk && element == rhs.element);
-	}
+template<typename T, int CHUNK_LENGTH, bool INIT>
+inline T *Log<T, CHUNK_LENGTH, INIT>::get(int index) {
 
-	template<typename T, int CHUNK_LENGTH, bool INIT>
-	inline void Log<T, CHUNK_LENGTH, INIT>::iterator::next() {
-		element++;
+	LogChunk *chunk = head;
 
-		if(element == CHUNK_LENGTH) {
-			element = 0;
+	if(index > CHUNK_LENGTH){
+		int chunk_index = index / CHUNK_LENGTH;
+
+		for(int i = 0; i < chunk_index; i++)
 			chunk = chunk->next;
+
+		return chunk->elements + (index % CHUNK_LENGTH);
+	}
+
+	return chunk->elements + index;
+
+}
+
+/*template<typename T, int CHUNK_LENGTH, bool INIT>
+	inline T *Log<T, CHUNK_LENGTH, INIT>::get_last() {
+		T *ret;
+
+		if(nextElement == 0) {
+			if(lastChunk == head){
+				ret = NULL;
+			} else {
+				ret = lastChunk->prev->elements + CHUNK_LENGTH - 1;
+			}
+		} else {
+			ret = lastChunk->elements + nextElement - 1;
 		}
-	}
 
-	template<typename T, int CHUNK_LENGTH, bool INIT>
-	inline bool Log<T, CHUNK_LENGTH, INIT>::iterator::hasNext() {
-		return !(element == lastElement && chunk == lastChunk);
-	}
-
-	template<typename T, int CHUNK_LENGTH, bool INIT>
-	inline typename Log<T, CHUNK_LENGTH, INIT>::iterator& Log<T, CHUNK_LENGTH, INIT>::iterator::operator++() {
-		next();
-		return this;
-	}
-
-	template<typename T, int CHUNK_LENGTH, bool INIT>
-	inline typename Log<T, CHUNK_LENGTH, INIT>::iterator Log<T, CHUNK_LENGTH, INIT>::iterator::operator++(int dummy) {
-		typename Log<T, CHUNK_LENGTH, INIT>::iterator ret = *this;
-		next();
 		return ret;
+	}*/
+
+template<typename T, int CHUNK_LENGTH, bool INIT>
+inline bool Log<T, CHUNK_LENGTH, INIT>::contains(const T *el) {
+	LogChunk *curr = head;
+
+	while(curr != NULL) {
+		const T *chunk_start = curr->elements;
+		const T *chunk_end = chunk_start + CHUNK_LENGTH;
+
+		if(el >= chunk_start && el < chunk_end) {
+			return true;
+		}
+
+		if(curr == lastChunk) {
+			return false;
+		}
+
+		curr = curr->next;
 	}
 
-	template<typename T, int CHUNK_LENGTH, bool INIT>
-	inline T& Log<T, CHUNK_LENGTH, INIT>::iterator::operator*() const {
-		return chunk->elements[element];
+	return false;
+}
+
+template<typename T, int CHUNK_LENGTH, bool INIT>
+inline T Log<T, CHUNK_LENGTH, INIT>::remove() {
+	if(nextElement == 0) {
+		nextElement = CHUNK_LENGTH - 1;
+		lastChunk = lastChunk->prev;
+		return lastChunk->elements[CHUNK_LENGTH - 1];
 	}
 
-//	template<typename T, int CHUNK_LENGTH, bool INIT>
-//	inline unsigned Log<T, CHUNK_LENGTH, INIT>::get_size() const {
-//		unsigned ret = 0;
-//		LogChunk *curr = head;
-//
-//		while(curr != lastChunk) {
-//			ret += CHUNK_LENGTH;
-//		}
-//
-//		return ret + nextElement;
-//	}
+	return lastChunk->elements[--nextElement];
+}
 
-    // return truncated size
-	template<typename T, int CHUNK_LENGTH, bool INIT>
+template<typename T, int CHUNK_LENGTH, bool INIT>
+inline void Log<T, CHUNK_LENGTH, INIT>::delete_last() {
+	if(nextElement == 0) {
+		nextElement = CHUNK_LENGTH - 1;
+		lastChunk = lastChunk->prev;
+	} else {
+		--nextElement;
+	}
+}
+
+template<typename T, int CHUNK_LENGTH, bool INIT>
+inline void Log<T, CHUNK_LENGTH, INIT>::clear() {
+	lastChunk = head;
+	nextElement = 0;
+}
+
+template<typename T, int CHUNK_LENGTH, bool INIT>
+inline bool Log<T, CHUNK_LENGTH, INIT>::iterator::operator==(
+		const Log<T, CHUNK_LENGTH, INIT>::iterator& rhs) {
+	return chunk == rhs.chunk && element == rhs.element;
+}
+
+template<typename T, int CHUNK_LENGTH, bool INIT>
+inline bool Log<T, CHUNK_LENGTH, INIT>::iterator::operator!=(
+		const Log<T, CHUNK_LENGTH, INIT>::iterator& rhs) {
+	return !(chunk == rhs.chunk && element == rhs.element);
+}
+
+template<typename T, int CHUNK_LENGTH, bool INIT>
+inline void Log<T, CHUNK_LENGTH, INIT>::iterator::next() {
+	element++;
+
+	if(element == CHUNK_LENGTH) {
+		element = 0;
+		chunk = chunk->next;
+	}
+}
+
+template<typename T, int CHUNK_LENGTH, bool INIT>
+inline bool Log<T, CHUNK_LENGTH, INIT>::iterator::hasNext() {
+	return !(element == lastElement && chunk == lastChunk);
+}
+
+template<typename T, int CHUNK_LENGTH, bool INIT>
+inline typename Log<T, CHUNK_LENGTH, INIT>::iterator& Log<T, CHUNK_LENGTH, INIT>::iterator::operator++() {
+	next();
+	return this;
+}
+
+template<typename T, int CHUNK_LENGTH, bool INIT>
+inline typename Log<T, CHUNK_LENGTH, INIT>::iterator Log<T, CHUNK_LENGTH, INIT>::iterator::operator++(int dummy) {
+	typename Log<T, CHUNK_LENGTH, INIT>::iterator ret = *this;
+	next();
+	return ret;
+}
+
+template<typename T, int CHUNK_LENGTH, bool INIT>
+inline T& Log<T, CHUNK_LENGTH, INIT>::iterator::operator*() const {
+	return chunk->elements[element];
+}
+
+template<typename T, int CHUNK_LENGTH, bool INIT>
+inline unsigned Log<T, CHUNK_LENGTH, INIT>::get_size() const {
+	unsigned ret = 0;
+	LogChunk *curr = head;
+
+	while(curr != lastChunk) {
+		ret += CHUNK_LENGTH;
+	}
+
+	return ret + nextElement;
+}
+
+// return truncated size
+		/*	template<typename T, int CHUNK_LENGTH, bool INIT>
 	inline unsigned Log<T, CHUNK_LENGTH, INIT>::get_size() const {
 		return head == lastChunk ? nextElement : CHUNK_LENGTH;
 	}
+		 */
 }
 
 #elif defined VECTOR_LOG
 
 namespace tlstm {
 
-	template<typename T, int INITIAL_SIZE = 256>
-	class Log : public WlpdstmAlloced {
-		public:
-			class iterator : public WlpdstmAlloced {
-				public:
-					iterator(T *ar = NULL, unsigned s = 0,
-							unsigned c = 0)
-						: array(ar), size(s), current(c) {  }
+template<typename T, int INITIAL_SIZE = 256>
+class Log : public WlpdstmAlloced {
+public:
+	class iterator : public WlpdstmAlloced {
+	public:
+		iterator(T *ar = NULL, unsigned s = 0,
+				unsigned c = 0)
+	: array(ar), size(s), current(c) {  }
 
-				public:
-					bool operator==(const iterator& rhs);
-					bool operator!=(const iterator& rhs);
-					void next();
-					bool hasNext();
-					iterator& operator++();
-					iterator operator++(int);
-					T& operator*() const;
+	public:
+		bool operator==(const iterator& rhs);
+		bool operator!=(const iterator& rhs);
+		void next();
+		bool hasNext();
+		iterator& operator++();
+		iterator operator++(int);
+		T& operator*() const;
 
-				private:
-					T *array;
-					unsigned size;
-					unsigned current;
-			};
-
-		public:
-			Log() : array((T *)tlstm::malloc(INITIAL_SIZE * sizeof(T))),
-				size(INITIAL_SIZE), next(0) { }
-
-			iterator begin() const;
-			iterator end() const;
-
-			bool empty() const;
-			void insert(const T& element);
-			void clear();
-			T *get_next();
-
-		private:
-			T *array;
-			unsigned size;
-			unsigned next;
+	private:
+		T *array;
+		unsigned size;
+		unsigned current;
 	};
+
+	public:
+	Log() : array((T *)tlstm::malloc(INITIAL_SIZE * sizeof(T))),
+	size(INITIAL_SIZE), next(0) { }
+
+	iterator begin() const;
+	iterator end() const;
+
+	bool empty() const;
+	void insert(const T& element);
+	void clear();
+	T *get_next();
+
+	private:
+	T *array;
+	unsigned size;
+	unsigned next;
+};
 }
 
 namespace tlstm {
 
-	template<typename T, int INITIAL_SIZE>
-	inline typename Log<T, INITIAL_SIZE>::iterator Log<T, INITIAL_SIZE>::begin() const {
-		return iterator(array, next);
+template<typename T, int INITIAL_SIZE>
+inline typename Log<T, INITIAL_SIZE>::iterator Log<T, INITIAL_SIZE>::begin() const {
+	return iterator(array, next);
+}
+
+template<typename T, int INITIAL_SIZE>
+inline typename Log<T, INITIAL_SIZE>::iterator Log<T, INITIAL_SIZE>::end() const {
+	return iterator(array, next, next);
+}
+
+template<typename T, int INITIAL_SIZE>
+inline bool Log<T, INITIAL_SIZE>::empty() const {
+	return (next == 0);
+}
+
+template<typename T, int INITIAL_SIZE>
+inline void Log<T, INITIAL_SIZE>::insert(const T& el) {
+	if(next == size) {
+		size *= 2;
+		T *oldArray = array;
+		array = (T *)tlstm::malloc(size * sizeof(T));
+		memcpy(array, oldArray, next);
+		tlstm::free(oldArray);
 	}
 
-	template<typename T, int INITIAL_SIZE>
-	inline typename Log<T, INITIAL_SIZE>::iterator Log<T, INITIAL_SIZE>::end() const {
-		return iterator(array, next, next);
-	}
+	array[next++] = el;
+}
 
-	template<typename T, int INITIAL_SIZE>
-	inline bool Log<T, INITIAL_SIZE>::empty() const {
-		return (next == 0);
-	}
+template<typename T, int INITIAL_SIZE>
+inline void Log<T, INITIAL_SIZE>::clear() {
+	next = 0;
+}
 
-	template<typename T, int INITIAL_SIZE>
-	inline void Log<T, INITIAL_SIZE>::insert(const T& el) {
-		if(next == size) {
-			size *= 2;
-			T *oldArray = array;
-			array = (T *)tlstm::malloc(size * sizeof(T));
-			memcpy(array, oldArray, next);
-			tlstm::free(oldArray);
-		}
+template<typename T, int INITIAL_SIZE>
+inline bool Log<T, INITIAL_SIZE>::iterator::operator==(
+		const Log<T, INITIAL_SIZE>::iterator::iterator& rhs) {
+	return array == rhs.array && current == rhs.current;
+}
 
-		array[next++] = el;
-	}
+template<typename T, int INITIAL_SIZE>
+inline bool Log<T, INITIAL_SIZE>::iterator::operator!=(
+		const Log<T, INITIAL_SIZE>::iterator::iterator& rhs) {
+	return !(array == rhs.array && current == rhs.current);
+}
 
-	template<typename T, int INITIAL_SIZE>
-	inline void Log<T, INITIAL_SIZE>::clear() {
-		next = 0;
-	}
+template<typename T, int INITIAL_SIZE>
+inline void Log<T, INITIAL_SIZE>::iterator::next() {
+	current++;
+}
 
-	template<typename T, int INITIAL_SIZE>
-	inline bool Log<T, INITIAL_SIZE>::iterator::operator==(
-			const Log<T, INITIAL_SIZE>::iterator::iterator& rhs) {
-		return array == rhs.array && current == rhs.current;
-	}
+template<typename T, int INITIAL_SIZE>
+inline bool Log<T, INITIAL_SIZE>::iterator::hasNext() {
+	return (current < size) && (size != 0);
+}
 
-	template<typename T, int INITIAL_SIZE>
-	inline bool Log<T, INITIAL_SIZE>::iterator::operator!=(
-			const Log<T, INITIAL_SIZE>::iterator::iterator& rhs) {
-		return !(array == rhs.array && current == rhs.current);
-	}
+template<typename T, int INITIAL_SIZE>
+inline typename Log<T, INITIAL_SIZE>::iterator& Log<T, INITIAL_SIZE>::iterator::operator++() {
+	next();
+	return this;
+}
 
-	template<typename T, int INITIAL_SIZE>
-	inline void Log<T, INITIAL_SIZE>::iterator::next() {
-		current++;
-	}
+template<typename T, int INITIAL_SIZE>
+inline typename Log<T, INITIAL_SIZE>::iterator Log<T, INITIAL_SIZE>::iterator::operator++(int dummy) {
+	typename Log<T, INITIAL_SIZE>::iterator ret = *this;
+	next();
+	return ret;
+}
 
-	template<typename T, int INITIAL_SIZE>
-	inline bool Log<T, INITIAL_SIZE>::iterator::hasNext() {
-		return (current < size) && (size != 0);
-	}
+template<typename T, int INITIAL_SIZE>
+inline T& Log<T, INITIAL_SIZE>::iterator::operator*() const {
+	return array[current];
+}
 
-	template<typename T, int INITIAL_SIZE>
-	inline typename Log<T, INITIAL_SIZE>::iterator& Log<T, INITIAL_SIZE>::iterator::operator++() {
-		next();
-		return this;
-	}
+template<typename T, int INITIAL_SIZE>
+inline T *Log<T, INITIAL_SIZE>::get_next() {
+	return array + next++;
+}
 
-	template<typename T, int INITIAL_SIZE>
-	inline typename Log<T, INITIAL_SIZE>::iterator Log<T, INITIAL_SIZE>::iterator::operator++(int dummy) {
-		typename Log<T, INITIAL_SIZE>::iterator ret = *this;
-		next();
-		return ret;
-	}
-
-	template<typename T, int INITIAL_SIZE>
-	inline T& Log<T, INITIAL_SIZE>::iterator::operator*() const {
-		return array[current];
-	}
-
-	template<typename T, int INITIAL_SIZE>
-	inline T *Log<T, INITIAL_SIZE>::get_next() {
-		return array + next++;
-	}
-
-	template<typename T, int CHUNK_LENGTH>
-	inline bool Log<T, CHUNK_LENGTH>::contains(const T *el) {
-		return el >= array && el <= array + size - 1;
-	}
+template<typename T, int CHUNK_LENGTH>
+inline bool Log<T, CHUNK_LENGTH>::contains(const T *el) {
+	return el >= array && el <= array + size - 1;
+}
 }
 
 #elif defined LINKED_LOG
@@ -395,205 +433,205 @@ namespace tlstm {
 //
 
 namespace tlstm {
-	
-	template<typename T, int INITIAL_SIZE = 2048, int GROWTH_FACTOR = 2048>
-	class Log : public WlpdstmAlloced {
-		private:
-			struct Node : public WlpdstmAlloced {
-				T data;
-				Node *next;
-				Node *prev;
-			};
 
-		public:
-			class iterator : public WlpdstmAlloced {
-				public:
-					iterator(Node *n = NULL) : current(n)  {  }
-	
-				public:
-					bool operator==(const iterator& rhs);
-					bool operator!=(const iterator& rhs);
-					void next();
-					bool hasNext() const;
-					iterator& operator++();
-					iterator operator++(int);
-					T& operator*() const;
-	
-				private:
-					Node *current;
-			};
-
-		public:
-			Log();
-
-			iterator begin() const;
-			iterator end() const;
-
-			bool empty() const;
-			void insert(const T& element);
-			T remove();
-			void delete_last();
-			T *get_next();
-			void clear();
-
-//			bool contains(const T *el);
-
-//			unsigned get_size() const;
-
-		private:
-			void allocate_free(int size);
-
-		private:
-			Node *head;
-			Node *tail;
-			Node *free;
+template<typename T, int INITIAL_SIZE = 2048, int GROWTH_FACTOR = 2048>
+class Log : public WlpdstmAlloced {
+private:
+	struct Node : public WlpdstmAlloced {
+		T data;
+		Node *next;
+		Node *prev;
 	};
+
+	public:
+	class iterator : public WlpdstmAlloced {
+	public:
+		iterator(Node *n = NULL) : current(n)  {  }
+
+	public:
+		bool operator==(const iterator& rhs);
+		bool operator!=(const iterator& rhs);
+		void next();
+		bool hasNext() const;
+		iterator& operator++();
+		iterator operator++(int);
+		T& operator*() const;
+
+	private:
+		Node *current;
+	};
+
+	public:
+	Log();
+
+	iterator begin() const;
+	iterator end() const;
+
+	bool empty() const;
+	void insert(const T& element);
+	T remove();
+	void delete_last();
+	T *get_next();
+	void clear();
+
+	//			bool contains(const T *el);
+
+	//			unsigned get_size() const;
+
+	private:
+	void allocate_free(int size);
+
+	private:
+	Node *head;
+	Node *tail;
+	Node *free;
+};
 }
 
 
 namespace tlstm {
 
-	template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
-	inline Log<T, INITIAL_SIZE, GROWTH_FACTOR>::Log() : head(NULL), tail(NULL) {
-		allocate_free(INITIAL_SIZE);
+template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
+inline Log<T, INITIAL_SIZE, GROWTH_FACTOR>::Log() : head(NULL), tail(NULL) {
+	allocate_free(INITIAL_SIZE);
+}
+
+template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
+inline typename Log<T, INITIAL_SIZE, GROWTH_FACTOR>::iterator Log<T, INITIAL_SIZE, GROWTH_FACTOR>::begin() const {
+	return iterator(head);
+}
+
+template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
+inline typename Log<T, INITIAL_SIZE, GROWTH_FACTOR>::iterator Log<T, INITIAL_SIZE, GROWTH_FACTOR>::end() const {
+	return iterator();
+}
+
+template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
+inline bool Log<T, INITIAL_SIZE, GROWTH_FACTOR>::empty() const {
+	return tail == NULL;
+}
+
+template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
+inline void Log<T, INITIAL_SIZE, GROWTH_FACTOR>::insert(const T& element) {
+	T *next = get_next();
+	*next = element;
+}
+
+// I assume that free is empty
+template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
+inline void Log<T, INITIAL_SIZE, GROWTH_FACTOR>::allocate_free(int size) {
+	Node *curr = new Node[size];
+	Node *next = curr + 1;
+	free = curr;
+
+	for(int i = 0;i < size - 1;i++) {
+		curr->next = next;
+		++curr;
+		++next;
 	}
 
-	template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
-	inline typename Log<T, INITIAL_SIZE, GROWTH_FACTOR>::iterator Log<T, INITIAL_SIZE, GROWTH_FACTOR>::begin() const {
-		return iterator(head);
+	// initialize the last
+	curr->next = NULL;
+}
+
+template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
+inline T Log<T, INITIAL_SIZE, GROWTH_FACTOR>::remove() {
+	Node *last = tail;
+	delete_last();
+	return last->data;
+}
+
+template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
+inline void Log<T, INITIAL_SIZE, GROWTH_FACTOR>::delete_last() {
+	Node *last = tail;
+
+	// remove from the used list
+	tail = last->prev;
+
+	if(tail == NULL) {
+		head = NULL;
+	} else {
+		tail->next = NULL;
 	}
 
-	template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
-	inline typename Log<T, INITIAL_SIZE, GROWTH_FACTOR>::iterator Log<T, INITIAL_SIZE, GROWTH_FACTOR>::end() const {
-		return iterator();
+	// put into the free list
+	last->next = free;
+	free = last;
+}
+
+template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
+inline T *Log<T, INITIAL_SIZE, GROWTH_FACTOR>::get_next() {
+	// get the free element
+	Node *new_node = free;
+
+	if(new_node == NULL) {
+		allocate_free(GROWTH_FACTOR);
+		new_node = free;
 	}
 
-	template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
-	inline bool Log<T, INITIAL_SIZE, GROWTH_FACTOR>::empty() const {
-		return tail == NULL;
+	// take the free element out of the free list
+	free = free->next;
+
+	new_node->prev = tail;
+	new_node->next = NULL;
+
+	if(tail == NULL) {
+		head = new_node;
+	} else {
+		tail->next = new_node;
 	}
 
-	template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
-	inline void Log<T, INITIAL_SIZE, GROWTH_FACTOR>::insert(const T& element) {
-		T *next = get_next();
-		*next = element;
+	tail = new_node;
+	return &(new_node->data);
+}
+
+template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
+inline void Log<T, INITIAL_SIZE, GROWTH_FACTOR>::clear() {
+	if(tail != NULL) {
+		tail->next = free;
+		free = head;
+		tail = head = NULL;
 	}
+}
 
-	// I assume that free is empty
-	template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
-	inline void Log<T, INITIAL_SIZE, GROWTH_FACTOR>::allocate_free(int size) {
-		Node *curr = new Node[size];
-		Node *next = curr + 1;
-		free = curr;
+// iterator
+template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
+inline bool Log<T, INITIAL_SIZE, GROWTH_FACTOR>::iterator::operator==(const iterator& rhs) {
+	return rhs.current == current;
+}
 
-		for(int i = 0;i < size - 1;i++) {
-			curr->next = next;
-			++curr;
-			++next;
-		}
+template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
+inline bool Log<T, INITIAL_SIZE, GROWTH_FACTOR>::iterator::operator!=(const iterator& rhs) {
+	return rhs.current != current;
+}
 
-		// initialize the last
-		curr->next = NULL;
-	}
+template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
+inline void Log<T, INITIAL_SIZE, GROWTH_FACTOR>::iterator::next() {
+	current = current->next;
+}
 
-	template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
-	inline T Log<T, INITIAL_SIZE, GROWTH_FACTOR>::remove() {
-		Node *last = tail;
-		delete_last();
-		return last->data;
-	}
+template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
+inline bool Log<T, INITIAL_SIZE, GROWTH_FACTOR>::iterator::hasNext() const {
+	return current != NULL;
+}
 
-	template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
-	inline void Log<T, INITIAL_SIZE, GROWTH_FACTOR>::delete_last() {
-		Node *last = tail;
+template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
+inline typename Log<T, INITIAL_SIZE, GROWTH_FACTOR>::iterator& Log<T, INITIAL_SIZE, GROWTH_FACTOR>::iterator::operator++() {
+	next();
+	return *this;
+}
 
-		// remove from the used list
-		tail = last->prev;
+template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
+inline typename Log<T, INITIAL_SIZE, GROWTH_FACTOR>::iterator Log<T, INITIAL_SIZE, GROWTH_FACTOR>::iterator::operator++(int) {
+	iterator ret = *this;
+	next();
+	return ret;
+}
 
-		if(tail == NULL) {
-			head = NULL;
-		} else {
-			tail->next = NULL;
-		}
-		
-		// put into the free list
-		last->next = free;
-		free = last;
-	}
-
-	template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
-	inline T *Log<T, INITIAL_SIZE, GROWTH_FACTOR>::get_next() {
-		// get the free element
-		Node *new_node = free;
-		
-		if(new_node == NULL) {
-			allocate_free(GROWTH_FACTOR);
-			new_node = free;
-		}
-		
-		// take the free element out of the free list
-		free = free->next;
-
-		new_node->prev = tail;
-		new_node->next = NULL;
-		
-		if(tail == NULL) {
-			head = new_node;
-		} else {
-			tail->next = new_node;
-		}
-		
-		tail = new_node;
-		return &(new_node->data);
-	}
-
-	template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
-	inline void Log<T, INITIAL_SIZE, GROWTH_FACTOR>::clear() {
-		if(tail != NULL) {
-			tail->next = free;
-			free = head;
-			tail = head = NULL;
-		}
-	}
-
-	// iterator
-	template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
-	inline bool Log<T, INITIAL_SIZE, GROWTH_FACTOR>::iterator::operator==(const iterator& rhs) {
-		return rhs.current == current;
-	}
-
-	template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
-	inline bool Log<T, INITIAL_SIZE, GROWTH_FACTOR>::iterator::operator!=(const iterator& rhs) {
-		return rhs.current != current;
-	}
-
-	template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
-	inline void Log<T, INITIAL_SIZE, GROWTH_FACTOR>::iterator::next() {
-		current = current->next;
-	}
-
-	template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
-	inline bool Log<T, INITIAL_SIZE, GROWTH_FACTOR>::iterator::hasNext() const {
-		return current != NULL;
-	}
-
-	template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
-	inline typename Log<T, INITIAL_SIZE, GROWTH_FACTOR>::iterator& Log<T, INITIAL_SIZE, GROWTH_FACTOR>::iterator::operator++() {
-		next();
-		return *this;
-	}
-
-	template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
-	inline typename Log<T, INITIAL_SIZE, GROWTH_FACTOR>::iterator Log<T, INITIAL_SIZE, GROWTH_FACTOR>::iterator::operator++(int) {
-		iterator ret = *this;
-		next();
-		return ret;
-	}
-
-	template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
-	inline T& Log<T, INITIAL_SIZE, GROWTH_FACTOR>::iterator::operator*() const {
-		return current->data;
-	}
+template<typename T, int INITIAL_SIZE, int GROWTH_FACTOR>
+inline T& Log<T, INITIAL_SIZE, GROWTH_FACTOR>::iterator::operator*() const {
+	return current->data;
+}
 
 }
 

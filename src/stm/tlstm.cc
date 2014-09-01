@@ -17,16 +17,16 @@
 
 extern "C" {
 
-void tlstm_global_init(int nb_tasks) {
-	tlstm::CurrentTransaction::GlobalInit(nb_tasks);
+void tlstm_global_init(int nb_tasks, int nb_threads) {
+	tlstm::CurrentTransaction::GlobalInit(nb_tasks, nb_threads);
 }
 
 void tlstm_thread_init(int ptid, int taskid) {
 	tlstm::CurrentTransaction::ThreadInit(ptid, taskid);
 }
 
-void tlstm_start_tx(int commit, int serial, int start, int last) {
-	tlstm::CurrentTransaction::TxStart(0, commit, serial, start, last);
+void tlstm_start_tx(int serial, int start, int last) {
+	tlstm::CurrentTransaction::TxStart(0, serial, start, last);
 }
 
 void tlstm_start_tx_id(int lexical_tx_id) {
@@ -47,6 +47,10 @@ void tlstm_abort_tx() {
 
 void tlstm_restart_tx() {
 	tlstm::CurrentTransaction::TxRestart();
+}
+
+void tlstm_inconsistent_read_restart_tx() {
+	tlstm::CurrentTransaction::InconsistentReadRestart();
 }
 
 void tlstm_write_word(Word *address, Word value) {
@@ -83,8 +87,12 @@ LONG_JMP_BUF *tlstm_get_long_jmp_buf_desc(tx_desc *tx) {
 	return &((tlstm::Transaction *)tx)->start_buf;
 }
 
-void tlstm_start_tx_id_desc(tx_desc *tx, int lexical_tx_id, int commit, int serial, int start, int last) {
-	((tlstm::Transaction *)tx)->TxStart(lexical_tx_id,  commit, serial, start, last);
+void tlstm_inconsistent_read_restart_tx_desc(tx_desc *tx) {
+	((tlstm::Transaction *)tx)->InconsistentReadRestart();
+}
+
+void tlstm_start_tx_id_desc(tx_desc *tx, int lexical_tx_id, int serial, int start, int last) {
+	((tlstm::Transaction *)tx)->TxStart(lexical_tx_id, serial, start, last);
 }
 
 void tlstm_commit_tx_desc(tx_desc *tx) {

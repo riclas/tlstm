@@ -20,6 +20,8 @@ Word tlstm::TxMixinv::thread_count;
 
 int tlstm::TxMixinv::specdepth;
 
+pthread_t tlstm::TxMixinv::threadid[MAX_THREADS];
+
 tlstm::TxMixinv::ProgramThread tlstm::TxMixinv::prog_thread[MAX_THREADS];
 
 CACHE_LINE_ALIGNED tlstm::PaddedBool tlstm::TxMixinv::synchronization_in_progress;

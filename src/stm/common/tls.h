@@ -13,8 +13,8 @@ namespace tlstm {
 
 	template<typename T, bool INIT = true>
 	struct GlobalInitInvoker {
-		static void GlobalInit(int nb_tasks) {
-			T::GlobalInit(nb_tasks);
+		static void GlobalInit(int nb_tasks, int nb_threads) {
+			T::GlobalInit(nb_tasks, nb_threads);
 		}
 	};
 
@@ -105,8 +105,8 @@ namespace tlstm {
 	template<class T, bool GLOBAL_INIT, bool THREAD_INIT>
 	class Tls {
 		public:
-			static void GlobalInit(int nb_tasks) {
-				GlobalInitInvoker<T, GLOBAL_INIT>::GlobalInit(nb_tasks);
+			static void GlobalInit(int nb_tasks, int nb_threads) {
+				GlobalInitInvoker<T, GLOBAL_INIT>::GlobalInit(nb_tasks, nb_threads);
 			}
 
 			static void ThreadInit(int ptid, int taskid) {
